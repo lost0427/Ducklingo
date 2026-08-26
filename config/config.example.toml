@@ -6,3 +6,11 @@ ffmpeg_variant = "gpl"
 [download]
 retries = 3
 retry_delay_seconds = 2
+
+[auth]
+session_idle_minutes = 120
+session_max_days = 14
+login_failure_limit = 5
+login_lock_minutes = 15
+csrf_enabled = true
+cookie_secure = true
