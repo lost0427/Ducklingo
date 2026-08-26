@@ -14,3 +14,4 @@ login_failure_limit = 5
 login_lock_minutes = 15
 csrf_enabled = true
 cookie_secure = true
+allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]

@@ -75,12 +75,17 @@ class AuthStore:
         username = username.strip()
         if not username or len(password) < 12:
             raise ValueError("username and a 12-character password are required")
-        with self._db() as db:
-            cursor = db.execute(
-                "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
-                (username, hash_password(password), role, _stamp(_now())),
-            )
-            return cursor.lastrowid
+        if role not in ("user", "admin"):
+            raise ValueError("role must be user or admin")
+        try:
+            with self._db() as db:
+                cursor = db.execute(
+                    "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+                    (username, hash_password(password), role, _stamp(_now())),
+                )
+                return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            raise ValueError("username exists")
 
     def user(self, username: str) -> sqlite3.Row | None:
         with self._db() as db:
@@ -139,8 +144,11 @@ class AuthStore:
     def session_user(self, session: str, idle_minutes: int) -> sqlite3.Row | None:
         now = _now()
         with self._db() as db:
-            row = db.execute("SELECT * FROM sessions WHERE id_hash = ? AND revoked_at IS NULL", (_digest(session),)).fetchone()
-            if not row or datetime.fromisoformat(row["expires_at"]) <= now or datetime.fromisoformat(row["last_seen_at"]) + timedelta(minutes=idle_minutes) <= now:
+            row = db.execute(
+                "SELECT sessions.*, users.is_active AS user_active FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.id_hash = ? AND sessions.revoked_at IS NULL",
+                (_digest(session),),
+            ).fetchone()
+            if not row or not row["user_active"] or datetime.fromisoformat(row["expires_at"]) <= now or datetime.fromisoformat(row["last_seen_at"]) + timedelta(minutes=idle_minutes) <= now:
                 return None
             db.execute("UPDATE sessions SET last_seen_at = ? WHERE id_hash = ?", (_stamp(now), row["id_hash"]))
         return self.user_by_id(row["user_id"])
@@ -163,3 +171,33 @@ class AuthStore:
                 query += " AND id_hash != ?"
                 values.append(_digest(keep_session))
             db.execute(query, values)
+
+    def list_users(self) -> list[sqlite3.Row]:
+        with self._db() as db:
+            return db.execute("SELECT id, username, role, is_active, created_at, last_login_at FROM users ORDER BY id").fetchall()
+
+    def active_admin_count(self) -> int:
+        with self._db() as db:
+            return db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1").fetchone()[0]
+
+    def revoke_user_sessions(self, user_id: int) -> None:
+        with self._db() as db:
+            db.execute("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (_stamp(_now()), user_id))
+
+    def update_user(self, user_id: int, is_active: bool | None = None, password: str | None = None) -> sqlite3.Row:
+        user = self.user_by_id(user_id)
+        if not user:
+            raise KeyError(user_id)
+        if is_active is False and user["role"] == "admin" and user["is_active"] and self.active_admin_count() <= 1:
+            raise ValueError("last admin")
+        if password is not None:
+            self.change_password(user_id, password)
+        if is_active is not None:
+            with self._db() as db:
+                db.execute("UPDATE users SET is_active = ? WHERE id = ?", (int(is_active), user_id))
+            if not is_active:
+                self.revoke_user_sessions(user_id)
+        updated = self.user_by_id(user_id)
+        if not updated:
+            raise KeyError(user_id)
+        return updated
