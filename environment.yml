@@ -1,0 +1,8 @@
+name: ducklingo
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - maturin>=1.8,<2
