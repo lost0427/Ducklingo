@@ -1,0 +1,8 @@
+[tools]
+data_dir = "data/tools"
+ffmpeg_release_tag = "autobuild-2026-08-25-13-06"
+ffmpeg_variant = "gpl"
+
+[download]
+retries = 3
+retry_delay_seconds = 2
