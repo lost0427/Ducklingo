@@ -1,9 +1,8 @@
-import shutil
-import tempfile
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Cookie, Header, HTTPException, Request
+from fastapi import APIRouter, Cookie, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import AnyHttpUrl, BaseModel
 
@@ -76,26 +75,52 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
     def download(
         request: Request,
         data: VideoDownloadInput,
-        background_tasks: BackgroundTasks,
         origin: str | None = Header(default=None),
         x_csrf_token: str | None = Header(default=None),
         ducklingo_session: str | None = Cookie(default=None),
     ):
-        current(ducklingo_session)
+        user = current(ducklingo_session)
         check_csrf(request, ducklingo_session, x_csrf_token, origin)
 
-        temp_root = root / "data" / "tmp"
-        temp_root.mkdir(parents=True, exist_ok=True)
-        directory = Path(tempfile.mkdtemp(prefix="ducklingo-download-", dir=temp_root))
-        output = directory / "ducklingo-video.mp4"
+        file_id = uuid4().hex
+        output = media_dir(user["id"]) / f"{file_id}.mp4"
         try:
-            downloaded = download_from_config(str(data.url), output, root=root, quality=data.quality)
+            download_from_config(str(data.url), output, root=root, quality=data.quality)
         except (OSError, RuntimeError) as exc:
-            shutil.rmtree(directory, ignore_errors=True)
+            output.unlink(missing_ok=True)
             raise HTTPException(502, str(exc)[:1000] or "video download failed") from exc
 
-        background_tasks.add_task(shutil.rmtree, directory, ignore_errors=True)
-        return FileResponse(downloaded, media_type="video/mp4", filename="ducklingo-video.mp4", background=background_tasks)
+        filename = sanitize_filename(f"ducklingo-{datetime.now():%Y%m%d-%H%M%S}.mp4")
+        media.register(file_id, user["id"], filename, "download", output.stat().st_size, "video/mp4")
+        return {"id": file_id, "filename": filename, "size": output.stat().st_size}
+
+    @api.get("/files")
+    def list_files(ducklingo_session: str | None = Cookie(default=None)):
+        user = current(ducklingo_session)
+        return [
+            {
+                "id": row["id"],
+                "filename": row["filename"],
+                "kind": row["kind"],
+                "size": row["size"],
+                "contentType": row["content_type"],
+                "createdAt": row["created_at"],
+            }
+            for row in media.list_for_user(user["id"])
+        ]
+
+    @api.get("/file/{file_id}")
+    def get_file(file_id: str, ducklingo_session: str | None = Cookie(default=None)):
+        user = current(ducklingo_session)
+        if not FILE_ID_PATTERN.fullmatch(file_id):
+            raise HTTPException(404, "File not found")
+        row = media.get(file_id)
+        if not row or row["user_id"] != user["id"]:
+            raise HTTPException(404, "File not found")
+        matches = list(media_dir(user["id"]).glob(f"{file_id}.*"))
+        if not matches:
+            raise HTTPException(404, "File not found")
+        return FileResponse(matches[0], media_type=row["content_type"] or "application/octet-stream", filename=row["filename"])
 
     @api.get("/upload-config")
     def upload_config(ducklingo_session: str | None = Cookie(default=None)):

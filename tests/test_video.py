@@ -60,24 +60,26 @@ class VideoDownloadTest(unittest.TestCase):
                 self.assertEqual(calls, 2)
                 self.assertEqual(timeouts, [3600, 3600])
 
-    def test_http_download_requires_auth_and_returns_video(self):
+    def test_http_download_persists_and_serves_file(self):
         with tempfile.TemporaryDirectory() as directory:
-            db_path = Path(directory) / "auth.db"
-            store = AuthStore(db_path)
-            store.create_user("alice", "correct horse battery staple")
-            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False)))
-
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            AuthStore(db_path).create_user("bob", "correct horse battery staple")
+            alice = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            bob = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
             self.assertEqual(
-                client.post(
+                alice.post(
                     "/api/video/download",
                     json={"url": "https://example.com/video", "quality": "1080"},
                 ).status_code,
                 401,
             )
-            client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
-            csrf = client.cookies.get("ducklingo_csrf")
+            alice.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+            bob.post("/api/auth/login", json={"username": "bob", "password": "correct horse battery staple"})
+            csrf = alice.cookies.get("ducklingo_csrf")
             self.assertEqual(
-                client.post(
+                alice.post(
                     "/api/video/download",
                     json={"url": "https://example.com/video", "quality": "1080"},
                 ).status_code,
@@ -89,23 +91,29 @@ class VideoDownloadTest(unittest.TestCase):
                 return Path(output)
 
             with patch("backend.video_api.download_from_config", side_effect=fake_download):
-                response = client.post(
+                response = alice.post(
                     "/api/video/download",
                     headers={"X-CSRF-Token": csrf},
                     json={"url": "https://example.com/video", "quality": "1080"},
                 )
-
             self.assertEqual(response.status_code, 200, response.text)
-            self.assertEqual(response.content, b"video")
-            self.assertEqual(response.headers["content-type"], "video/mp4")
-            self.assertIn("ducklingo-video.mp4", response.headers["content-disposition"])
+            payload = response.json()
+            self.assertTrue(payload["filename"].startswith("ducklingo-"))
+            files = alice.get("/api/video/files").json()
+            self.assertEqual([row["id"] for row in files], [payload["id"]])
+            served = alice.get(f"/api/video/file/{payload['id']}")
+            self.assertEqual(served.status_code, 200)
+            self.assertEqual(served.content, b"video")
+
+            intruded = bob.get(f"/api/video/file/{payload['id']}")
+            self.assertEqual(intruded.status_code, 404)
 
     def test_http_download_rejects_unknown_quality(self):
         with tempfile.TemporaryDirectory() as directory:
-            db_path = Path(directory) / "auth.db"
-            store = AuthStore(db_path)
-            store.create_user("alice", "correct horse battery staple")
-            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False)))
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
             client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
             csrf = client.cookies.get("ducklingo_csrf")
             response = client.post(
