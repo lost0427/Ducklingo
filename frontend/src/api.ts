@@ -4,6 +4,7 @@ export type User = { id: number; username: string; role: 'admin' | 'user' }
 export type ManagedUser = User & { is_active: boolean; created_at: string; last_login_at: string | null }
 export type VideoQuality = 'best' | '2160' | '1440' | '1080' | '720' | '480' | '360'
 export type UploadConfig = { maxBytes: number; extensions: string[]; accept: string }
+export type UploadedFile = { id: string; filename: string; size: number; contentType: string }
 
 export const user = ref<User | null>(null)
 
@@ -61,6 +62,40 @@ export function patchUser(id: number, data: { is_active?: boolean; password?: st
 
 export function getUploadConfig() {
   return request<UploadConfig>('/api/video/upload-config')
+}
+
+export function uploadVideo(file: File, onProgress: (value: number) => void) {
+  let xhr: XMLHttpRequest | undefined
+  const promise = new Promise<UploadedFile>((resolve, reject) => {
+    xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/video/upload?filename=' + encodeURIComponent(file.name))
+    xhr.withCredentials = true
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+    xhr.setRequestHeader('X-CSRF-Token', csrfToken())
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
+    }
+    xhr.onload = () => {
+      if (xhr!.status === 401) user.value = null
+      if (xhr!.status < 200 || xhr!.status >= 300) {
+        try {
+          reject(new Error((JSON.parse(xhr!.responseText) as { detail?: string }).detail || xhr!.statusText))
+        } catch {
+          reject(new Error(xhr!.statusText || 'Upload failed'))
+        }
+        return
+      }
+      resolve(JSON.parse(xhr!.responseText) as UploadedFile)
+    }
+    xhr.onerror = () => reject(new Error('Upload failed'))
+    xhr.onabort = () => reject(new Error('Upload cancelled'))
+    xhr.send(file)
+  })
+  return { promise, abort: () => xhr?.abort() }
+}
+
+export function deleteUploadedFile(id: string) {
+  return request<{ ok: boolean }>('/api/video/upload/' + id, { method: 'DELETE' })
 }
 
 async function responseError(response: Response) {

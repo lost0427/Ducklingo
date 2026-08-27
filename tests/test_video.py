@@ -113,6 +113,81 @@ class VideoDownloadTest(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 422)
 
+    def test_upload_streams_file_and_can_be_deleted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            store = AuthStore(db_path)
+            store.create_user("alice", "correct horse battery staple")
+            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+            csrf = client.cookies.get("ducklingo_csrf")
+
+            response = client.post(
+                "/api/video/upload?filename=lesson.mp4",
+                headers={"Content-Type": "video/mp4", "X-CSRF-Token": csrf},
+                content=b"video data",
+            )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            uploaded = response.json()
+            stored = root / "data" / "uploads" / "1" / f"{uploaded['id']}.mp4"
+            self.assertEqual(stored.read_bytes(), b"video data")
+            self.assertEqual(uploaded["size"], 10)
+            deleted = client.delete(f"/api/video/upload/{uploaded['id']}", headers={"X-CSRF-Token": csrf})
+            self.assertEqual(deleted.status_code, 200, deleted.text)
+            self.assertFalse(stored.exists())
+
+    def test_upload_requires_csrf_and_enforces_configured_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config").mkdir()
+            (root / "config" / "config.toml").write_text(
+                '[upload]\nmax_file_size_gb = 0.00000001\nallowed_extensions = ["mp4"]\n',
+                encoding="utf-8",
+            )
+            db_path = root / "auth.db"
+            store = AuthStore(db_path)
+            store.create_user("alice", "correct horse battery staple")
+            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+
+            missing_csrf = client.post("/api/video/upload?filename=lesson.mp4", content=b"x")
+            self.assertEqual(missing_csrf.status_code, 403)
+            csrf = client.cookies.get("ducklingo_csrf")
+            too_large = client.post(
+                "/api/video/upload?filename=lesson.mp4",
+                headers={"X-CSRF-Token": csrf},
+                content=b"x" * 20,
+            )
+            self.assertEqual(too_large.status_code, 413)
+
+    def test_upload_files_are_isolated_between_users(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            store = AuthStore(db_path)
+            store.create_user("alice", "correct horse battery staple")
+            store.create_user("bob", "correct horse battery staple")
+            alice = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            bob = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            alice.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+            bob.post("/api/auth/login", json={"username": "bob", "password": "correct horse battery staple"})
+            alice_csrf = alice.cookies.get("ducklingo_csrf")
+            bob_csrf = bob.cookies.get("ducklingo_csrf")
+            uploaded = alice.post(
+                "/api/video/upload?filename=lesson.mp4",
+                headers={"X-CSRF-Token": alice_csrf},
+                content=b"alice video",
+            ).json()
+
+            response = bob.delete(
+                f"/api/video/upload/{uploaded['id']}",
+                headers={"X-CSRF-Token": bob_csrf},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue((root / "data" / "uploads" / "1" / f"{uploaded['id']}.mp4").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

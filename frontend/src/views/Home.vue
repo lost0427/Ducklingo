@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ArrowDownTrayIcon, CloudArrowUpIcon, TrashIcon } from '@heroicons/vue/24/outline'
-import { downloadVideo, getUploadConfig, type UploadConfig, type VideoQuality } from '../api'
+import { deleteUploadedFile, downloadVideo, getUploadConfig, uploadVideo, type UploadConfig, type VideoQuality } from '../api'
 import { t } from '../prefs'
 
 const url = ref('')
 const quality = ref<VideoQuality>('1080')
 const downloading = ref(false)
 const error = ref('')
-const downloadedUrl = ref('')
-const downloadedFilename = ref('ducklingo-video.mp4')
+const mediaUrl = ref('')
+const mediaName = ref('')
+const mediaSize = ref(0)
+const mediaType = ref('')
 const selectedFile = ref<File | null>(null)
 const uploadConfig = ref<UploadConfig | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+const uploading = ref(false)
+const uploadProgress = ref(0)
+const uploadedId = ref<string | null>(null)
+let uploadTask: ReturnType<typeof uploadVideo> | null = null
 
 const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
   { value: 'best', label: 'qualityBest' },
@@ -24,6 +31,9 @@ const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
 ]
 
 const selectedFileSize = computed(() => (selectedFile.value ? formatBytes(selectedFile.value.size) : ''))
+const mediaKind = computed(() =>
+  mediaType.value.startsWith('audio/') || /\.(wav|mp3|flac|m4a)$/i.test(mediaName.value) ? 'audio' : 'video',
+)
 const uploadHint = computed(() => {
   if (!uploadConfig.value) return t.value.loading
   const formats = uploadConfig.value.extensions.map((extension) => extension.toUpperCase()).join(', ')
@@ -32,7 +42,7 @@ const uploadHint = computed(() => {
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return bytes + ' B'
-  const units = ['KB', 'MB', 'GB', 'TB']
+  const units = ['K', 'M', 'G', 'T']
   let value = bytes
   let unit = -1
   do {
@@ -56,14 +66,10 @@ async function submit() {
   downloading.value = true
   try {
     const result = await downloadVideo(url.value.trim(), quality.value)
-    const objectUrl = URL.createObjectURL(result.blob)
-    downloadedUrl.value = objectUrl
-    downloadedFilename.value = result.filename
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = result.filename
-    link.click()
-    link.remove()
+    setMedia(result.blob, result.filename)
+    uploadedId.value = null
+    selectedFile.value = null
+    if (fileInput.value) fileInput.value.value = ''
   } catch (errorValue) {
     error.value = messageFrom(errorValue)
   } finally {
@@ -71,10 +77,57 @@ async function submit() {
   }
 }
 
-function removeVideo() {
-  if (downloadedUrl.value) URL.revokeObjectURL(downloadedUrl.value)
-  downloadedUrl.value = ''
-  downloadedFilename.value = 'ducklingo-video.mp4'
+function setMedia(blob: Blob, name: string) {
+  clearMediaState()
+  mediaUrl.value = URL.createObjectURL(blob)
+  mediaName.value = name
+  mediaSize.value = blob.size
+  mediaType.value = blob.type
+}
+
+function clearMediaState() {
+  if (mediaUrl.value) URL.revokeObjectURL(mediaUrl.value)
+  mediaUrl.value = ''
+  mediaName.value = ''
+  mediaSize.value = 0
+  mediaType.value = ''
+}
+
+function removeMedia() {
+  uploadTask?.abort()
+  uploadTask = null
+  if (uploadedId.value) void deleteUploadedFile(uploadedId.value)
+  clearMediaState()
+  selectedFile.value = null
+  uploadedId.value = null
+  uploading.value = false
+  uploadProgress.value = 0
+  if (fileInput.value) fileInput.value.value = ''
+}
+
+function downloadCurrent() {
+  if (!mediaUrl.value) return
+  const link = document.createElement('a')
+  link.href = mediaUrl.value
+  link.download = mediaName.value
+  link.click()
+  link.remove()
+}
+
+async function uploadSelectedFile(file: File) {
+  uploading.value = true
+  uploadProgress.value = 0
+  const task = uploadVideo(file, (value) => (uploadProgress.value = value))
+  uploadTask = task
+  try {
+    const uploaded = await task.promise
+    if (selectedFile.value === file) uploadedId.value = uploaded.id
+  } catch (errorValue) {
+    if (selectedFile.value === file && uploading.value) error.value = messageFrom(errorValue)
+  } finally {
+    if (uploadTask === task) uploadTask = null
+    if (selectedFile.value === file) uploading.value = false
+  }
 }
 
 function chooseFile(files: FileList | File[] | undefined) {
@@ -102,7 +155,9 @@ function chooseFile(files: FileList | File[] | undefined) {
     return
   }
   error.value = ''
+  setMedia(file, file.name)
   selectedFile.value = file
+  void uploadSelectedFile(file)
 }
 
 function onFileChange(event: Event) {
@@ -120,14 +175,17 @@ onMounted(async () => {
     error.value = t.value.uploadConfigFailed
   }
 })
-onUnmounted(removeVideo)
+onUnmounted(() => {
+  uploadTask?.abort()
+  clearMediaState()
+})
 </script>
 
 <template>
   <section class="mx-auto max-w-2xl py-4 sm:py-8">
     <h1 class="mb-4 text-3xl font-bold tracking-tight sm:text-4xl"><span class="text-base-content/80">a.</span> {{ t.downloadOrUpload }}</h1>
     <form class="space-y-4 rounded-box border border-base-content/30 p-3 sm:p-4" @submit.prevent="submit">
-      <div class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
+      <div v-if="!mediaUrl" class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
         <div class="space-y-2">
           <label for="video-url" class="label p-0 text-sm font-semibold">{{ t.videoUrl }}</label>
           <input
@@ -151,7 +209,7 @@ onUnmounted(removeVideo)
       </div>
 
       <button
-        v-if="!downloadedUrl"
+        v-if="!mediaUrl"
         class="btn btn-outline w-full border-base-content/80"
         type="submit"
         :disabled="downloading"
@@ -162,21 +220,40 @@ onUnmounted(removeVideo)
         {{ downloading ? t.downloading : t.download }}
       </button>
 
-      <div v-if="downloadedUrl" class="space-y-3">
+      <div v-if="mediaUrl" class="space-y-3">
+        <div class="flex items-center justify-between gap-3 text-sm">
+          <span class="truncate font-semibold">{{ mediaName }}</span>
+          <span class="shrink-0 text-base-content/60">{{ formatBytes(mediaSize) }}</span>
+        </div>
         <video
+          v-if="mediaKind === 'video'"
           class="aspect-video w-full rounded-box border border-base-300 bg-neutral object-contain"
           controls
           preload="metadata"
-          :src="downloadedUrl"
-          :aria-label="downloadedFilename"
+          :src="mediaUrl"
+          :aria-label="mediaName"
         ></video>
-        <button class="btn btn-outline btn-error" type="button" @click="removeVideo">
-          <TrashIcon class="size-5" aria-hidden="true" />
-          {{ t.deleteVideo }}
-        </button>
+        <audio v-else class="w-full" controls :src="mediaUrl" :aria-label="mediaName"></audio>
+        <div v-if="uploading" class="space-y-1">
+          <div class="flex justify-between text-sm">
+            <span>{{ t.uploading }}</span>
+            <span>{{ uploadProgress }}%</span>
+          </div>
+          <progress class="progress progress-primary w-full" :value="uploadProgress" max="100" :aria-label="t.uploading"></progress>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="button" @click="downloadCurrent">
+            <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
+            {{ t.download }}
+          </button>
+          <button class="btn btn-outline btn-error" type="button" @click="removeMedia">
+            <TrashIcon class="size-5" aria-hidden="true" />
+            {{ t.deleteVideo }}
+          </button>
+        </div>
       </div>
 
-      <div class="space-y-2">
+      <div v-if="!mediaUrl" class="space-y-2">
         <p class="text-sm font-semibold">{{ t.orUpload }}</p>
         <div
           class="flex min-h-16 items-center gap-3 rounded-field bg-base-200 p-3"
@@ -191,7 +268,7 @@ onUnmounted(removeVideo)
             </p>
           </div>
           <label for="video-file" class="btn btn-sm shrink-0">{{ t.browseFiles }}</label>
-          <input id="video-file" class="hidden" type="file" :accept="uploadConfig?.accept" @change="onFileChange" />
+          <input ref="fileInput" id="video-file" class="hidden" type="file" :accept="uploadConfig?.accept" @change="onFileChange" />
         </div>
       </div>
 

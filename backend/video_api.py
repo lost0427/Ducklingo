@@ -1,6 +1,8 @@
 import shutil
 import tempfile
+import re
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Header, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -92,5 +94,73 @@ def router(store: AuthStore, config: AuthConfig, root: Path) -> APIRouter:
             "extensions": extensions,
             "accept": ",".join("." + extension for extension in extensions),
         }
+
+    @api.post("/upload")
+    async def upload_file(
+        request: Request,
+        filename: str,
+        origin: str | None = Header(default=None),
+        x_csrf_token: str | None = Header(default=None),
+        ducklingo_session: str | None = Cookie(default=None),
+    ):
+        user = current(ducklingo_session)
+        check_csrf(request, ducklingo_session, x_csrf_token, origin)
+        safe_name = Path(filename.replace("\\", "/")).name
+        extension = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+        if not safe_name or not extension or extension not in upload["extensions"]:
+            raise HTTPException(415, "Unsupported file format")
+
+        max_bytes = upload["max_bytes"]
+        content_length = request.headers.get("content-length")
+        if content_length and content_length.isdigit() and int(content_length) > max_bytes:
+            raise HTTPException(413, "File exceeds the configured size limit")
+
+        directory = root / "data" / "uploads" / str(user["id"])
+        directory.mkdir(parents=True, exist_ok=True)
+        file_id = uuid4().hex
+        temporary = directory / f"{file_id}.part"
+        target = directory / f"{file_id}.{extension}"
+        total = 0
+        try:
+            with temporary.open("wb") as output:
+                async for chunk in request.stream():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise HTTPException(413, "File exceeds the configured size limit")
+                    output.write(chunk)
+            temporary.replace(target)
+        except HTTPException:
+            temporary.unlink(missing_ok=True)
+            raise
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise HTTPException(507, "Could not save uploaded file") from exc
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+
+        return {
+            "id": file_id,
+            "filename": safe_name,
+            "size": total,
+            "contentType": request.headers.get("content-type", "application/octet-stream"),
+        }
+
+    @api.delete("/upload/{file_id}")
+    def delete_upload(
+        file_id: str,
+        request: Request,
+        origin: str | None = Header(default=None),
+        x_csrf_token: str | None = Header(default=None),
+        ducklingo_session: str | None = Cookie(default=None),
+    ):
+        user = current(ducklingo_session)
+        check_csrf(request, ducklingo_session, x_csrf_token, origin)
+        if not re.fullmatch(r"[0-9a-f]{32}", file_id):
+            raise HTTPException(404, "Uploaded file not found")
+        directory = root / "data" / "uploads" / str(user["id"])
+        for path in directory.glob(f"{file_id}.*"):
+            path.unlink(missing_ok=True)
+        return {"ok": True}
 
     return api

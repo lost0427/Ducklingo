@@ -19,12 +19,13 @@ def load_auth_config() -> AuthConfig:
     return AuthConfig.from_mapping(load_config(path).get("auth", {}))
 
 
-def create_app(db_path: str | Path = "data/ducklingo.db", config: AuthConfig | None = None) -> FastAPI:
+def create_app(db_path: str | Path = "data/ducklingo.db", config: AuthConfig | None = None, root: Path | None = None) -> FastAPI:
+    root = root or ROOT
     app = FastAPI(title="Ducklingo")
     auth_config = config or load_auth_config()
     store = AuthStore(db_path)
     app.include_router(router(store, auth_config))
-    app.include_router(video_router(store, auth_config, ROOT))
+    app.include_router(video_router(store, auth_config, root))
 
     @app.middleware("http")
     async def security_headers(request, call_next):
@@ -34,7 +35,7 @@ def create_app(db_path: str | Path = "data/ducklingo.db", config: AuthConfig | N
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
 
-    dist = ROOT / "frontend" / "dist"
+    dist = root / "frontend" / "dist"
     assets = dist / "assets"
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
