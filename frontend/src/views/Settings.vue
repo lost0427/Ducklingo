@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { changePassword, createUser, listUsers, type ManagedUser, patchUser, user } from '../api'
-import { locale, setLocale, t } from '../prefs'
+import { t } from '../prefs'
 
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -67,10 +67,6 @@ async function submitCreate() {
   }
 }
 
-function onLocale(event: Event) {
-  setLocale((event.target as HTMLSelectElement).value === 'en' ? 'en' : 'zh')
-}
-
 onMounted(() => {
   void loadUsers()
 })
@@ -80,14 +76,6 @@ onMounted(() => {
   <div class="flex flex-col gap-6">
     <h1 class="text-xl">{{ t.settings }}</h1>
     <p v-if="error" class="text-error">{{ error }}</p>
-
-    <fieldset class="fieldset max-w-sm">
-      <legend class="fieldset-legend">{{ t.language }}</legend>
-      <select class="select" :value="locale" @change="onLocale">
-        <option value="zh">中文</option>
-        <option value="en">English</option>
-      </select>
-    </fieldset>
 
     <form class="max-w-sm" @submit.prevent="savePassword">
       <fieldset class="fieldset">
