@@ -220,36 +220,48 @@ onUnmounted(() => {
         {{ downloading ? t.downloading : t.download }}
       </button>
 
-      <div v-if="mediaUrl" class="space-y-3">
-        <div class="flex items-center justify-between gap-3 text-sm">
-          <span class="truncate font-semibold">{{ mediaName }}</span>
-          <span class="shrink-0 text-base-content/60">{{ formatBytes(mediaSize) }}</span>
-        </div>
-        <video
-          v-if="mediaKind === 'video'"
-          class="aspect-video w-full rounded-box border border-base-300 bg-neutral object-contain"
-          controls
-          preload="metadata"
-          :src="mediaUrl"
-          :aria-label="mediaName"
-        ></video>
-        <audio v-else class="w-full" controls :src="mediaUrl" :aria-label="mediaName"></audio>
-        <div v-if="uploading" class="space-y-1">
-          <div class="flex justify-between text-sm">
-            <span>{{ t.uploading }}</span>
-            <span>{{ uploadProgress }}%</span>
+      <div v-if="mediaUrl" class="card bg-base-100 shadow-sm">
+        <div class="card-body gap-3 p-4">
+          <div class="flex items-center justify-between gap-3 text-sm">
+            <span class="truncate font-semibold">{{ mediaName }}</span>
+            <span v-if="uploading" class="badge badge-primary badge-sm shrink-0">{{ t.uploading }} {{ uploadProgress }}%</span>
+            <span v-else class="badge badge-ghost badge-sm shrink-0">{{ formatBytes(mediaSize) }}</span>
           </div>
-          <progress class="progress progress-primary w-full" :value="uploadProgress" max="100" :aria-label="t.uploading"></progress>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="button" @click="downloadCurrent">
-            <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
-            {{ t.download }}
-          </button>
-          <button class="btn btn-outline btn-error" type="button" @click="removeMedia">
-            <TrashIcon class="size-5" aria-hidden="true" />
-            {{ t.deleteVideo }}
-          </button>
+          <div class="relative">
+            <video
+              v-if="mediaKind === 'video'"
+              class="aspect-video w-full rounded-box bg-neutral object-contain"
+              controls
+              preload="metadata"
+              :src="mediaUrl"
+              :aria-label="mediaName"
+            ></video>
+            <audio v-else class="w-full" controls :src="mediaUrl" :aria-label="mediaName"></audio>
+            <div
+              v-if="uploading"
+              role="progressbar"
+              class="absolute inset-x-0 bottom-0 h-1"
+              :aria-label="t.uploading"
+              :aria-valuenow="uploadProgress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div
+                class="h-full bg-primary transition-[width] duration-300 ease-out"
+                :style="{ width: uploadProgress + '%' }"
+              ></div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-outline flex-1 border-base-content/80" type="button" @click="removeMedia">
+              <TrashIcon class="size-5" aria-hidden="true" />
+              {{ t.deleteVideo }}
+            </button>
+            <button class="btn btn-outline flex-1 border-base-content/80" type="button" @click="downloadCurrent">
+              <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
+              {{ t.download }}
+            </button>
+          </div>
         </div>
       </div>
 
