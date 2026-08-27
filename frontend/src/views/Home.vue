@@ -1,23 +1,31 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ArrowDownTrayIcon, CloudArrowUpIcon, TrashIcon } from '@heroicons/vue/24/outline'
-import { deleteUploadedFile, downloadVideo, getUploadConfig, uploadVideo, type UploadConfig, type VideoQuality } from '../api'
+import {
+  deleteUploadedFile,
+  downloadVideo,
+  getUploadConfig,
+  listMediaFiles,
+  mediaFileUrl,
+  uploadVideo,
+  type MediaFile,
+  type UploadConfig,
+  type VideoQuality,
+} from '../api'
 import { t } from '../prefs'
 
 const url = ref('')
 const quality = ref<VideoQuality>('1080')
 const downloading = ref(false)
 const error = ref('')
-const mediaUrl = ref('')
-const mediaName = ref('')
-const mediaSize = ref(0)
-const mediaType = ref('')
+const files = ref<MediaFile[]>([])
+const dismissed = ref(new Set<string>())
+const previewUrl = ref('')
 const selectedFile = ref<File | null>(null)
 const uploadConfig = ref<UploadConfig | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 const uploadProgress = ref(0)
-const uploadedId = ref<string | null>(null)
 let uploadTask: ReturnType<typeof uploadVideo> | null = null
 
 const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
@@ -30,10 +38,16 @@ const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
   { value: '360', label: 'quality360' },
 ]
 
-const selectedFileSize = computed(() => (selectedFile.value ? formatBytes(selectedFile.value.size) : ''))
-const mediaKind = computed(() =>
-  mediaType.value.startsWith('audio/') || /\.(wav|mp3|flac|m4a)$/i.test(mediaName.value) ? 'audio' : 'video',
+const currentFile = computed(() => files.value.find((file) => !dismissed.value.has(file.id)) ?? null)
+const mediaSrc = computed(() =>
+  previewUrl.value || (currentFile.value ? mediaFileUrl(currentFile.value.id) : ''),
 )
+const displayName = computed(() => selectedFile.value?.name || currentFile.value?.filename || '')
+const displaySize = computed(() => selectedFile.value?.size || currentFile.value?.size || 0)
+const mediaKind = computed(() => {
+  const type = currentFile.value?.contentType ?? ''
+  return type.startsWith('audio/') || /\.(wav|mp3|flac|m4a)$/i.test(displayName.value) ? 'audio' : 'video'
+})
 const uploadHint = computed(() => {
   if (!uploadConfig.value) return t.value.loading
   const formats = uploadConfig.value.extensions.map((extension) => extension.toUpperCase()).join(', ')
@@ -61,15 +75,23 @@ function messageFrom(errorValue: unknown) {
   }
 }
 
+async function refreshFiles() {
+  try {
+    files.value = await listMediaFiles()
+  } catch {
+    // keep showing whatever is already loaded
+  }
+}
+
 async function submit() {
   error.value = ''
   downloading.value = true
   try {
-    const result = await downloadVideo(url.value.trim(), quality.value)
-    setMedia(result.blob, result.filename)
-    uploadedId.value = null
+    releaseLocalPreview()
+    await downloadVideo(url.value.trim(), quality.value)
     selectedFile.value = null
     if (fileInput.value) fileInput.value.value = ''
+    await refreshFiles()
   } catch (errorValue) {
     error.value = messageFrom(errorValue)
   } finally {
@@ -77,39 +99,36 @@ async function submit() {
   }
 }
 
-function setMedia(blob: Blob, name: string) {
-  clearMediaState()
-  mediaUrl.value = URL.createObjectURL(blob)
-  mediaName.value = name
-  mediaSize.value = blob.size
-  mediaType.value = blob.type
+function setLocalPreview(file: File) {
+  releaseLocalPreview()
+  previewUrl.value = URL.createObjectURL(file)
 }
 
-function clearMediaState() {
-  if (mediaUrl.value) URL.revokeObjectURL(mediaUrl.value)
-  mediaUrl.value = ''
-  mediaName.value = ''
-  mediaSize.value = 0
-  mediaType.value = ''
+function releaseLocalPreview() {
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
 }
 
 function removeMedia() {
   uploadTask?.abort()
   uploadTask = null
-  if (uploadedId.value) void deleteUploadedFile(uploadedId.value)
-  clearMediaState()
-  selectedFile.value = null
-  uploadedId.value = null
   uploading.value = false
   uploadProgress.value = 0
+  selectedFile.value = null
+  releaseLocalPreview()
+  const target = currentFile.value
+  if (target) {
+    dismissed.value = new Set(dismissed.value).add(target.id)
+    void deleteUploadedFile(target.id).then(refreshFiles)
+  }
   if (fileInput.value) fileInput.value.value = ''
 }
 
 function downloadCurrent() {
-  if (!mediaUrl.value) return
+  if (!mediaSrc.value) return
   const link = document.createElement('a')
-  link.href = mediaUrl.value
-  link.download = mediaName.value
+  link.href = mediaSrc.value
+  link.download = displayName.value
   link.click()
   link.remove()
 }
@@ -120,8 +139,12 @@ async function uploadSelectedFile(file: File) {
   const task = uploadVideo(file, (value) => (uploadProgress.value = value))
   uploadTask = task
   try {
-    const uploaded = await task.promise
-    if (selectedFile.value === file) uploadedId.value = uploaded.id
+    await task.promise
+    if (selectedFile.value === file) {
+      selectedFile.value = null
+      releaseLocalPreview()
+      await refreshFiles()
+    }
   } catch (errorValue) {
     if (selectedFile.value === file && uploading.value) error.value = messageFrom(errorValue)
   } finally {
@@ -130,8 +153,8 @@ async function uploadSelectedFile(file: File) {
   }
 }
 
-function chooseFile(files: FileList | File[] | undefined) {
-  const list = files ? Array.from(files) : []
+function chooseFile(chosen: FileList | File[] | undefined) {
+  const list = chosen ? Array.from(chosen) : []
   if (!list.length) return
   if (list.length > 1) {
     selectedFile.value = null
@@ -155,7 +178,8 @@ function chooseFile(files: FileList | File[] | undefined) {
     return
   }
   error.value = ''
-  setMedia(file, file.name)
+  uploadTask?.abort()
+  setLocalPreview(file)
   selectedFile.value = file
   void uploadSelectedFile(file)
 }
@@ -168,16 +192,15 @@ function onDrop(event: DragEvent) {
   chooseFile(event.dataTransfer?.files)
 }
 
-onMounted(async () => {
-  try {
-    uploadConfig.value = await getUploadConfig()
-  } catch {
-    error.value = t.value.uploadConfigFailed
-  }
+onMounted(() => {
+  getUploadConfig()
+    .then((config) => (uploadConfig.value = config))
+    .catch(() => (error.value = t.value.uploadConfigFailed))
+  void refreshFiles()
 })
 onUnmounted(() => {
   uploadTask?.abort()
-  clearMediaState()
+  releaseLocalPreview()
 })
 </script>
 
@@ -185,7 +208,7 @@ onUnmounted(() => {
   <section class="mx-auto max-w-2xl py-4 sm:py-8">
     <h1 class="mb-4 text-3xl font-bold tracking-tight sm:text-4xl"><span class="text-base-content/80">a.</span> {{ t.downloadOrUpload }}</h1>
     <form class="space-y-4 rounded-box border border-base-content/30 p-3 sm:p-4" @submit.prevent="submit">
-      <div v-if="!mediaUrl" class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
+      <div v-if="!mediaSrc" class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
         <div class="space-y-2">
           <label for="video-url" class="label p-0 text-sm font-semibold">{{ t.videoUrl }}</label>
           <input
@@ -209,7 +232,7 @@ onUnmounted(() => {
       </div>
 
       <button
-        v-if="!mediaUrl"
+        v-if="!mediaSrc"
         class="btn btn-outline w-full border-base-content/80"
         type="submit"
         :disabled="downloading"
@@ -220,12 +243,12 @@ onUnmounted(() => {
         {{ downloading ? t.downloading : t.download }}
       </button>
 
-      <div v-if="mediaUrl" class="card bg-base-100 shadow-sm">
+      <div v-if="mediaSrc" class="card bg-base-100 shadow-sm">
         <div class="card-body gap-3 p-4">
           <div class="flex items-center justify-between gap-3 text-sm">
-            <span class="truncate font-semibold">{{ mediaName }}</span>
+            <span class="truncate font-semibold">{{ displayName }}</span>
             <span v-if="uploading" class="badge badge-primary badge-sm shrink-0">{{ t.uploading }} {{ uploadProgress }}%</span>
-            <span v-else class="badge badge-ghost badge-sm shrink-0">{{ formatBytes(mediaSize) }}</span>
+            <span v-else class="badge badge-ghost badge-sm shrink-0">{{ formatBytes(displaySize) }}</span>
           </div>
           <div class="relative">
             <video
@@ -233,10 +256,10 @@ onUnmounted(() => {
               class="aspect-video w-full rounded-box bg-neutral object-contain"
               controls
               preload="metadata"
-              :src="mediaUrl"
-              :aria-label="mediaName"
+              :src="mediaSrc"
+              :aria-label="displayName"
             ></video>
-            <audio v-else class="w-full" controls :src="mediaUrl" :aria-label="mediaName"></audio>
+            <audio v-else class="w-full" controls :src="mediaSrc" :aria-label="displayName"></audio>
             <div
               v-if="uploading"
               role="progressbar"
@@ -265,7 +288,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div v-if="!mediaUrl" class="space-y-2">
+      <div v-if="!mediaSrc" class="space-y-2">
         <p class="text-sm font-semibold">{{ t.orUpload }}</p>
         <div
           class="flex min-h-16 items-center gap-3 rounded-field bg-base-200 p-3"
@@ -276,7 +299,7 @@ onUnmounted(() => {
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-semibold">{{ selectedFile?.name || t.dropFile }}</p>
             <p class="truncate text-xs text-base-content/60">
-              {{ selectedFile ? selectedFileSize : uploadHint }}
+              {{ selectedFile ? formatBytes(displaySize) : uploadHint }}
             </p>
           </div>
           <label for="video-file" class="btn btn-sm shrink-0">{{ t.browseFiles }}</label>

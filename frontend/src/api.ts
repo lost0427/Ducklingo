@@ -5,6 +5,7 @@ export type ManagedUser = User & { is_active: boolean; created_at: string; last_
 export type VideoQuality = 'best' | '2160' | '1440' | '1080' | '720' | '480' | '360'
 export type UploadConfig = { maxBytes: number; extensions: string[]; accept: string }
 export type UploadedFile = { id: string; filename: string; size: number; contentType: string }
+export type MediaFile = { id: string; filename: string; kind: 'upload' | 'download'; size: number; contentType?: string; createdAt?: string }
 
 export const user = ref<User | null>(null)
 
@@ -98,17 +99,15 @@ export function deleteUploadedFile(id: string) {
   return request<{ ok: boolean }>('/api/video/upload/' + id, { method: 'DELETE' })
 }
 
-async function responseError(response: Response) {
-  const text = await response.text()
-  try {
-    const parsed = JSON.parse(text) as { detail?: string }
-    return parsed.detail || text || response.statusText
-  } catch {
-    return text || response.statusText
-  }
+export function listMediaFiles() {
+  return request<MediaFile[]>('/api/video/files')
 }
 
-export async function downloadVideo(url: string, quality: VideoQuality) {
+export function mediaFileUrl(id: string) {
+  return '/api/video/file/' + id
+}
+
+export async function downloadVideo(url: string, quality: VideoQuality): Promise<MediaFile> {
   const response = await fetch('/api/video/download', {
     method: 'POST',
     credentials: 'include',
@@ -120,8 +119,15 @@ export async function downloadVideo(url: string, quality: VideoQuality) {
   })
   if (response.status === 401) user.value = null
   if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as MediaFile
+}
 
-  const header = response.headers.get('Content-Disposition')
-  const filename = header?.match(/filename="?([^";]+)"?/i)?.[1] || 'ducklingo-video.mp4'
-  return { blob: await response.blob(), filename }
+async function responseError(response: Response) {
+  const text = await response.text()
+  try {
+    const parsed = JSON.parse(text) as { detail?: string }
+    return parsed.detail || text || response.statusText
+  } catch {
+    return text || response.statusText
+  }
 }
