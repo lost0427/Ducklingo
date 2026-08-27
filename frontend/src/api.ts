@@ -2,6 +2,8 @@ import { ref } from 'vue'
 
 export type User = { id: number; username: string; role: 'admin' | 'user' }
 export type ManagedUser = User & { is_active: boolean; created_at: string; last_login_at: string | null }
+export type VideoQuality = 'best' | '2160' | '1440' | '1080' | '720' | '480' | '360'
+export type UploadConfig = { maxBytes: number; extensions: string[]; accept: string }
 
 export const user = ref<User | null>(null)
 
@@ -55,4 +57,36 @@ export function createUser(username: string, password: string, role: 'user' | 'a
 
 export function patchUser(id: number, data: { is_active?: boolean; password?: string }) {
   return request<ManagedUser>(`/api/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+
+export function getUploadConfig() {
+  return request<UploadConfig>('/api/video/upload-config')
+}
+
+async function responseError(response: Response) {
+  const text = await response.text()
+  try {
+    const parsed = JSON.parse(text) as { detail?: string }
+    return parsed.detail || text || response.statusText
+  } catch {
+    return text || response.statusText
+  }
+}
+
+export async function downloadVideo(url: string, quality: VideoQuality) {
+  const response = await fetch('/api/video/download', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken(),
+    },
+    body: JSON.stringify({ url, quality }),
+  })
+  if (response.status === 401) user.value = null
+  if (!response.ok) throw new Error(await responseError(response))
+
+  const header = response.headers.get('Content-Disposition')
+  const filename = header?.match(/filename="?([^";]+)"?/i)?.[1] || 'ducklingo-video.mp4'
+  return { blob: await response.blob(), filename }
 }

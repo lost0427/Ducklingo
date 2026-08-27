@@ -6,6 +6,11 @@ ffmpeg_variant = "gpl"
 [download]
 retries = 3
 retry_delay_seconds = 2
+timeout_seconds = 3600
+
+[upload]
+max_file_size_gb = 2
+allowed_extensions = ["mp4", "mov", "avi", "mkv", "webm", "m4v", "wav", "mp3", "flac", "m4a"]
 
 [auth]
 session_idle_minutes = 120

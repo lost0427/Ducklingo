@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth.api import AuthConfig, router
 from .auth.store import AuthStore
 from .config import load_config
+from .video_api import router as video_router
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,7 +21,10 @@ def load_auth_config() -> AuthConfig:
 
 def create_app(db_path: str | Path = "data/ducklingo.db", config: AuthConfig | None = None) -> FastAPI:
     app = FastAPI(title="Ducklingo")
-    app.include_router(router(AuthStore(db_path), config or load_auth_config()))
+    auth_config = config or load_auth_config()
+    store = AuthStore(db_path)
+    app.include_router(router(store, auth_config))
+    app.include_router(video_router(store, auth_config, ROOT))
 
     @app.middleware("http")
     async def security_headers(request, call_next):

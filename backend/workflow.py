@@ -2,7 +2,7 @@ from pathlib import Path
 
 from .config import load_config, project_path
 from .tools import ensure_ffmpeg, ensure_ytdlp
-from .video import download_video
+from .video import VideoQuality, download_video
 
 
 def download_from_config(
@@ -10,6 +10,7 @@ def download_from_config(
     output: str | Path,
     config_path: str | Path = "config/config.toml",
     root: Path | None = None,
+    quality: VideoQuality = "best",
 ) -> Path:
     root = root or Path.cwd()
     config = load_config(project_path(str(config_path), root))
@@ -28,4 +29,6 @@ def download_from_config(
         ffmpeg,
         download.get("retries", 3),
         download.get("retry_delay_seconds", 2),
+        quality,
+        download.get("timeout_seconds", 3600),
     )
