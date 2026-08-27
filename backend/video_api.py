@@ -1,6 +1,5 @@
 import shutil
 import tempfile
-import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,6 +10,7 @@ from pydantic import AnyHttpUrl, BaseModel
 from .auth.api import AuthConfig
 from .auth.store import AuthStore
 from .config import load_config
+from .media_store import FILE_ID_PATTERN, MediaStore, sanitize_filename
 from .video import VideoQuality
 from .workflow import download_from_config
 
@@ -40,9 +40,21 @@ class VideoDownloadInput(BaseModel):
     quality: VideoQuality = "1080"
 
 
-def router(store: AuthStore, config: AuthConfig, root: Path) -> APIRouter:
+def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore | None = None) -> APIRouter:
     api = APIRouter(prefix="/api/video")
     upload = load_upload_config(root)
+    media = media or MediaStore(root / "data" / "ducklingo.db")
+
+    def media_dir(user_id: int) -> Path:
+        path = root / "data" / "uploads" / str(user_id)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    uploads_root = root / "data" / "uploads"
+    if uploads_root.exists():
+        for child in sorted(uploads_root.iterdir()):
+            if child.is_dir() and child.name.isdigit():
+                media.reconcile_user(int(child.name), child)
 
     def current(session: str | None):
         user = store.session_user(session or "", config.idle_minutes)
@@ -115,8 +127,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path) -> APIRouter:
         if content_length and content_length.isdigit() and int(content_length) > max_bytes:
             raise HTTPException(413, "File exceeds the configured size limit")
 
-        directory = root / "data" / "uploads" / str(user["id"])
-        directory.mkdir(parents=True, exist_ok=True)
+        directory = media_dir(user["id"])
         file_id = uuid4().hex
         temporary = directory / f"{file_id}.part"
         target = directory / f"{file_id}.{extension}"
@@ -139,11 +150,15 @@ def router(store: AuthStore, config: AuthConfig, root: Path) -> APIRouter:
             temporary.unlink(missing_ok=True)
             raise
 
+        display_name = sanitize_filename(safe_name)
+        content_type = request.headers.get("content-type", "application/octet-stream")
+        media.register(file_id, user["id"], display_name, "upload", total, content_type)
+
         return {
             "id": file_id,
-            "filename": safe_name,
+            "filename": display_name,
             "size": total,
-            "contentType": request.headers.get("content-type", "application/octet-stream"),
+            "contentType": content_type,
         }
 
     @api.delete("/upload/{file_id}")
@@ -156,11 +171,12 @@ def router(store: AuthStore, config: AuthConfig, root: Path) -> APIRouter:
     ):
         user = current(ducklingo_session)
         check_csrf(request, ducklingo_session, x_csrf_token, origin)
-        if not re.fullmatch(r"[0-9a-f]{32}", file_id):
+        if not FILE_ID_PATTERN.fullmatch(file_id):
             raise HTTPException(404, "Uploaded file not found")
-        directory = root / "data" / "uploads" / str(user["id"])
+        directory = media_dir(user["id"])
         for path in directory.glob(f"{file_id}.*"):
             path.unlink(missing_ok=True)
+        media.delete(file_id)
         return {"ok": True}
 
     return api

@@ -2,12 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
 from backend.auth.api import AuthConfig
 from backend.auth.store import AuthStore
+from backend.media_store import MediaStore, sanitize_filename
 from backend.video import download_video, format_selector
 from backend.video_api import load_upload_config
 
@@ -187,6 +189,71 @@ class VideoDownloadTest(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 200)
             self.assertTrue((root / "data" / "uploads" / "1" / f"{uploaded['id']}.mp4").exists())
+
+
+class MediaStoreTest(unittest.TestCase):
+    def test_sanitize_filename_keeps_cjk_and_strips_unsafe(self):
+        cases = {
+            "数学课 第3讲.mp4": "数学课_第3讲.mp4",
+            'a/b\\c:d*e?f"g<h>i|j.mp4': "abcdefghij.mp4",
+            "messy\x07 name..mp4": "messy_name.mp4",
+            ".hidden": "hidden",
+            "CON.mp4": "_CON.mp4",
+            "": "media",
+            "   ": "media",
+        }
+        for source, expected in cases.items():
+            self.assertEqual(sanitize_filename(source), expected)
+        long = sanitize_filename("片段" * 200 + ".mp4")
+        self.assertLessEqual(len(long), 120)
+        self.assertTrue(long.endswith(".mp4"))
+
+    def test_upload_registers_metadata_and_delete_removes_both(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+            csrf = client.cookies.get("ducklingo_csrf")
+
+            response = client.post(
+                "/api/video/upload?filename=数学课 第3讲.mp4",
+                headers={"Content-Type": "video/mp4", "X-CSRF-Token": csrf},
+                content=b"video data",
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["filename"], "数学课_第3讲.mp4")
+
+            media = MediaStore(db_path)
+            rows = media.list_for_user(1)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["kind"], "upload")
+            self.assertEqual(rows[0]["size"], 10)
+
+            deleted = client.delete(f"/api/video/upload/{response.json()['id']}", headers={"X-CSRF-Token": csrf})
+            self.assertEqual(deleted.status_code, 200, deleted.text)
+            self.assertEqual(media.list_for_user(1), [])
+
+    def test_reconcile_registers_orphans_and_drops_missing_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            orphan_id = uuid4().hex
+            user_dir = root / "data" / "uploads" / "1"
+            user_dir.mkdir(parents=True)
+            (user_dir / f"{orphan_id}.mp4").write_bytes(b"legacy")
+            (user_dir / "leftover.part").write_bytes(b"partial")
+            media = MediaStore(db_path)
+            media.register(uuid4().hex, 1, "ghost.mp4", "upload", 5)
+
+            create_app(db_path, AuthConfig(cookie_secure=False), root)
+
+            rows = media.list_for_user(1)
+            self.assertEqual([row["id"] for row in rows], [orphan_id])
+            self.assertEqual(rows[0]["filename"], f"{orphan_id}.mp4")
+            self.assertFalse((user_dir / "leftover.part").exists())
 
 
 if __name__ == "__main__":
