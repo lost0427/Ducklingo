@@ -63,10 +63,10 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def store_media(user_id: int, file_id: str, filename: str, kind: str, size: int, content_type: str) -> None:
+    def store_media(user_id: int, file_id: str, filename: str, kind: str, size: int, content_type: str, source_url: str = "") -> None:
         directory = media_dir(user_id)
         stale = [row["id"] for row in media.list_for_user(user_id) if row["id"] != file_id]
-        media.register(file_id, user_id, filename, kind, size, content_type)
+        media.register(file_id, user_id, filename, kind, size, content_type, source_url)
         for stale_id in stale:
             media.delete(stale_id)
             for path in directory.glob(f"{stale_id}.*"):
@@ -125,7 +125,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
             filename = sanitize_filename(title) + ".mp4"
         else:
             filename = sanitize_filename(f"ducklingo-{datetime.now():%Y%m%d-%H%M%S}.mp4")
-        store_media(user["id"], file_id, filename, "download", output.stat().st_size, "video/mp4")
+        store_media(user["id"], file_id, filename, "download", output.stat().st_size, "video/mp4", source_url=str(data.url))
         return {
             "id": file_id,
             "filename": filename,
@@ -145,6 +145,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
                 "contentType": row["content_type"],
                 "createdAt": row["created_at"],
                 "thumbnail": f"/api/video/thumb/{row['id']}" if cover_path(user["id"], row["id"]) else None,
+                "sourceUrl": row["source_url"],
             }
             for row in media.list_for_user(user["id"])
         ]

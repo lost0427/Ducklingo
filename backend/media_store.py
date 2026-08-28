@@ -63,17 +63,30 @@ class MediaStore:
                     kind TEXT NOT NULL,
                     size INTEGER NOT NULL,
                     content_type TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    source_url TEXT NOT NULL DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS files_user_created ON files(user_id, created_at);
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(files)")}
+            if "source_url" not in columns:
+                db.execute("ALTER TABLE files ADD COLUMN source_url TEXT NOT NULL DEFAULT ''")
 
-    def register(self, file_id: str, user_id: int, filename: str, kind: str, size: int, content_type: str = "") -> None:
+    def register(
+        self,
+        file_id: str,
+        user_id: int,
+        filename: str,
+        kind: str,
+        size: int,
+        content_type: str = "",
+        source_url: str = "",
+    ) -> None:
         stamp = datetime.now(timezone.utc).isoformat()
         with self._db() as db:
             db.execute(
-                "INSERT OR REPLACE INTO files VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (file_id, user_id, filename, kind, size, content_type, stamp),
+                "INSERT OR REPLACE INTO files VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (file_id, user_id, filename, kind, size, content_type, stamp, source_url),
             )
 
     def get(self, file_id: str) -> sqlite3.Row | None:

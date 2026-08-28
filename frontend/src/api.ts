@@ -13,6 +13,7 @@ export type MediaFile = {
   contentType?: string
   createdAt?: string
   thumbnail?: string | null
+  sourceUrl?: string | null
 }
 
 export const user = ref<User | null>(null)

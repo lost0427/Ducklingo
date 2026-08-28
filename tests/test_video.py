@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -110,6 +111,7 @@ class VideoDownloadTest(unittest.TestCase):
             self.assertIsNone(files[0]["thumbnail"])
             self.assertEqual(bob.get(f"/api/video/thumb/{payload['id']}").status_code, 404)
             self.assertEqual(alice.get(f"/api/video/thumb/{payload['id']}").status_code, 404)
+            self.assertEqual(files[0]["sourceUrl"], "https://example.com/video")
 
     def test_download_cover_lifecycle(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -338,6 +340,33 @@ class MediaStoreTest(unittest.TestCase):
             self.assertEqual([row["id"] for row in rows], [second.json()["id"]])
             user_dir = root / "data" / "uploads" / "1"
             self.assertEqual([path.name for path in user_dir.iterdir()], [f"{second.json()['id']}.mp4"])
+
+    def test_source_url_column_migrates_existing_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            legacy = sqlite3.connect(db_path)
+            legacy.executescript("""
+                CREATE TABLE files (
+                    id TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    filename TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    content_type TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+            """)
+            legacy.execute("INSERT INTO files VALUES (?, 1, ?, ?, ?, ?, ?)", ("a" * 32, "legacy.mp4", "upload", 4, "video/mp4", "2026-01-01T00:00:00+00:00"))
+            legacy.commit()
+            legacy.close()
+
+            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+            files = client.get("/api/video/files").json()
+            self.assertEqual(len(files), 1)
+            self.assertEqual(files[0]["sourceUrl"], "")
 
     def test_reconcile_keeps_cover_and_sweeps_orphans(self):
         with tempfile.TemporaryDirectory() as directory:

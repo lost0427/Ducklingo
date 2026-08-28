@@ -291,6 +291,14 @@ onUnmounted(() => {
               ></div>
             </div>
           </div>
+          <a
+            v-if="currentFile?.sourceUrl"
+            class="block truncate text-xs text-base-content/60 transition-colors hover:text-base-content"
+            :href="currentFile.sourceUrl"
+            :title="currentFile.sourceUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >{{ currentFile.sourceUrl }}</a>
           <div class="card-actions">
             <button class="btn btn-outline flex-1 border-base-content/80" type="button" @click="removeMedia">
               <TrashIcon class="size-5" aria-hidden="true" />
