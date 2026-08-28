@@ -251,8 +251,8 @@ onUnmounted(() => {
 
       <div v-if="mediaSrc" class="card bg-base-100 shadow-sm">
         <div class="card-body gap-3 p-4">
-          <div class="flex items-center justify-between gap-3 text-sm">
-            <span class="truncate font-semibold">{{ displayName }}</span>
+          <div class="flex items-start justify-between gap-3 text-sm">
+            <span class="min-w-0 break-words font-semibold">{{ displayName }}</span>
             <span v-if="uploading" class="badge badge-primary badge-sm shrink-0">{{ t.uploading }} {{ uploadProgress }}%</span>
             <span v-else class="badge badge-ghost badge-sm shrink-0">{{ formatBytes(displaySize) }}</span>
           </div>
