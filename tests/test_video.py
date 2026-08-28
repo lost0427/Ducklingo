@@ -108,6 +108,37 @@ class VideoDownloadTest(unittest.TestCase):
             intruded = bob.get(f"/api/video/file/{payload['id']}")
             self.assertEqual(intruded.status_code, 404)
 
+    def test_http_download_uses_ytdlp_title(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+            csrf = client.cookies.get("ducklingo_csrf")
+
+            def fake_download(_url, output, **_kwargs):
+                output = Path(output)
+                output.write_bytes(b"video")
+                Path(f"{output}.info.json").write_text('{"title": "Bad<title>: math 课"}', encoding="utf-8")
+                return output
+
+            with patch("backend.video_api.download_from_config", side_effect=fake_download):
+                response = client.post(
+                    "/api/video/download",
+                    headers={"X-CSRF-Token": csrf},
+                    json={"url": "https://example.com/video", "quality": "1080"},
+                )
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["filename"], "Badtitle_math_课.mp4")
+
+            stored = root / "data" / "uploads" / "1" / f"{payload['id']}.mp4"
+            self.assertTrue(stored.exists())
+            self.assertFalse(Path(f"{stored}.info.json").exists())
+            served = client.get(f"/api/video/file/{payload['id']}")
+            self.assertEqual(served.content, b"video")
+
     def test_http_download_rejects_unknown_quality(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

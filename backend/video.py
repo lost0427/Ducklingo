@@ -31,6 +31,7 @@ def download_video(
         str(ytdlp),
         "--no-playlist",
         "--continue",
+        "--write-info-json",
         "--ffmpeg-location",
         str(ffmpeg.parent),
         "--format",

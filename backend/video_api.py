@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -5,7 +6,6 @@ from uuid import uuid4
 from fastapi import APIRouter, Cookie, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import AnyHttpUrl, BaseModel
-
 from .auth.api import AuthConfig
 from .auth.store import AuthStore
 from .config import load_config
@@ -37,6 +37,20 @@ def load_upload_config(root: Path) -> dict[str, int | tuple[str, ...]]:
 class VideoDownloadInput(BaseModel):
     url: AnyHttpUrl
     quality: VideoQuality = "1080"
+
+
+def media_title(path: Path) -> str | None:
+    for candidate in (path.with_suffix(".info.json"), Path(f"{path}.info.json")):
+        if not candidate.exists():
+            continue
+        try:
+            data = json.loads(candidate.read_text(encoding="utf-8"))
+        finally:
+            candidate.unlink(missing_ok=True)
+        title = str(data.get("title") or "").strip()
+        if title:
+            return title
+    return None
 
 
 def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore | None = None) -> APIRouter:
@@ -96,10 +110,15 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         try:
             download_from_config(str(data.url), output, root=root, quality=data.quality)
         except (OSError, RuntimeError) as exc:
-            output.unlink(missing_ok=True)
+            for path in output.parent.glob(f"{file_id}*"):
+                path.unlink(missing_ok=True)
             raise HTTPException(502, str(exc)[:1000] or "video download failed") from exc
 
-        filename = sanitize_filename(f"ducklingo-{datetime.now():%Y%m%d-%H%M%S}.mp4")
+        title = media_title(output)
+        if title:
+            filename = sanitize_filename(title) + ".mp4"
+        else:
+            filename = sanitize_filename(f"ducklingo-{datetime.now():%Y%m%d-%H%M%S}.mp4")
         store_media(user["id"], file_id, filename, "download", output.stat().st_size, "video/mp4")
         return {"id": file_id, "filename": filename, "size": output.stat().st_size}
 
@@ -126,7 +145,11 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         row = media.get(file_id)
         if not row or row["user_id"] != user["id"]:
             raise HTTPException(404, "File not found")
-        matches = list(media_dir(user["id"]).glob(f"{file_id}.*"))
+        matches = [
+            path
+            for path in media_dir(user["id"]).glob(f"{file_id}.*")
+            if not path.name.endswith(".info.json")
+        ]
         if not matches:
             raise HTTPException(404, "File not found")
         return FileResponse(matches[0], media_type=row["content_type"] or "application/octet-stream", filename=row["filename"])
