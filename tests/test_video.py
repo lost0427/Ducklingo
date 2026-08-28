@@ -242,6 +242,51 @@ class MediaStoreTest(unittest.TestCase):
             deleted = client.delete(f"/api/video/upload/{response.json()['id']}", headers={"X-CSRF-Token": csrf})
             self.assertEqual(deleted.status_code, 200, deleted.text)
             self.assertEqual(media.list_for_user(1), [])
+            self.assertEqual(client.get("/api/video/files").json(), [])
+
+    def test_new_media_replaces_previous_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+            csrf = client.cookies.get("ducklingo_csrf")
+
+            def upload(name: str, body: bytes):
+                return client.post(
+                    f"/api/video/upload?filename={name}",
+                    headers={"Content-Type": "video/mp4", "X-CSRF-Token": csrf},
+                    content=body,
+                )
+
+            first = upload("lesson.mp4", b"one")
+            second = upload("lesson.mp4", b"twotwo")
+            self.assertEqual(first.status_code, 200, first.text)
+            self.assertEqual(second.status_code, 200, second.text)
+
+            media = MediaStore(db_path)
+            rows = media.list_for_user(1)
+            self.assertEqual([row["id"] for row in rows], [second.json()["id"]])
+            user_dir = root / "data" / "uploads" / "1"
+            self.assertEqual([path.name for path in user_dir.iterdir()], [f"{second.json()['id']}.mp4"])
+
+    def test_reconcile_collapses_to_newest_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            user_dir = root / "data" / "uploads" / "1"
+            user_dir.mkdir(parents=True)
+            (user_dir / ("a" * 32 + ".mp4")).write_bytes(b"older")
+            (user_dir / ("f" * 32 + ".mp4")).write_bytes(b"newer")
+
+            create_app(db_path, AuthConfig(cookie_secure=False), root)
+
+            media = MediaStore(db_path)
+            rows = media.list_for_user(1)
+            self.assertEqual([row["id"] for row in rows], ["f" * 32])
+            self.assertEqual([path.name for path in user_dir.iterdir()], ["f" * 32 + ".mp4"])
 
     def test_reconcile_registers_orphans_and_drops_missing_rows(self):
         with tempfile.TemporaryDirectory() as directory:

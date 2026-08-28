@@ -49,6 +49,15 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def store_media(user_id: int, file_id: str, filename: str, kind: str, size: int, content_type: str) -> None:
+        directory = media_dir(user_id)
+        stale = [row["id"] for row in media.list_for_user(user_id) if row["id"] != file_id]
+        media.register(file_id, user_id, filename, kind, size, content_type)
+        for stale_id in stale:
+            media.delete(stale_id)
+            for path in directory.glob(f"{stale_id}.*"):
+                path.unlink(missing_ok=True)
+
     uploads_root = root / "data" / "uploads"
     if uploads_root.exists():
         for child in sorted(uploads_root.iterdir()):
@@ -91,7 +100,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
             raise HTTPException(502, str(exc)[:1000] or "video download failed") from exc
 
         filename = sanitize_filename(f"ducklingo-{datetime.now():%Y%m%d-%H%M%S}.mp4")
-        media.register(file_id, user["id"], filename, "download", output.stat().st_size, "video/mp4")
+        store_media(user["id"], file_id, filename, "download", output.stat().st_size, "video/mp4")
         return {"id": file_id, "filename": filename, "size": output.stat().st_size}
 
     @api.get("/files")
@@ -177,7 +186,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
 
         display_name = sanitize_filename(safe_name)
         content_type = request.headers.get("content-type", "application/octet-stream")
-        media.register(file_id, user["id"], display_name, "upload", total, content_type)
+        store_media(user["id"], file_id, display_name, "upload", total, content_type)
 
         return {
             "id": file_id,

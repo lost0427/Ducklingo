@@ -109,3 +109,7 @@ class MediaStore:
         for row in self.list_for_user(user_id):
             if row["id"] not in seen:
                 self.delete(row["id"])
+        for row in self.list_for_user(user_id)[1:]:
+            for path in directory.glob(f"{row['id']}.*"):
+                path.unlink(missing_ok=True)
+            self.delete(row["id"])
