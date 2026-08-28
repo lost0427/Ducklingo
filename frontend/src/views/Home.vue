@@ -152,8 +152,10 @@ async function uploadSelectedFile(file: File) {
   } catch (errorValue) {
     if (selectedFile.value === file && uploading.value) error.value = messageFrom(errorValue)
   } finally {
-    if (uploadTask === task) uploadTask = null
-    if (selectedFile.value === file) uploading.value = false
+    if (uploadTask === task) {
+      uploadTask = null
+      uploading.value = false
+    }
   }
 }
 
