@@ -107,6 +107,43 @@ class VideoDownloadTest(unittest.TestCase):
 
             intruded = bob.get(f"/api/video/file/{payload['id']}")
             self.assertEqual(intruded.status_code, 404)
+            self.assertIsNone(files[0]["thumbnail"])
+            self.assertEqual(bob.get(f"/api/video/thumb/{payload['id']}").status_code, 404)
+            self.assertEqual(alice.get(f"/api/video/thumb/{payload['id']}").status_code, 404)
+
+    def test_download_cover_lifecycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            client = TestClient(create_app(db_path, AuthConfig(cookie_secure=False), root))
+            client.post("/api/auth/login", json={"username": "alice", "password": "correct horse battery staple"})
+            csrf = client.cookies.get("ducklingo_csrf")
+
+            def fake_download(_url, output, **_kwargs):
+                output = Path(output)
+                output.write_bytes(b"video")
+                output.with_suffix(".jpg").write_bytes(b"jpeg-data")
+                return output
+
+            with patch("backend.video_api.download_from_config", side_effect=fake_download):
+                response = client.post(
+                    "/api/video/download",
+                    headers={"X-CSRF-Token": csrf},
+                    json={"url": "https://example.com/video", "quality": "1080"},
+                )
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["thumbnail"], f"/api/video/thumb/{payload['id']}")
+
+            thumb = client.get(payload["thumbnail"])
+            self.assertEqual(thumb.status_code, 200)
+            self.assertEqual(thumb.content, b"jpeg-data")
+
+            deleted = client.delete(f"/api/video/upload/{payload['id']}", headers={"X-CSRF-Token": csrf})
+            self.assertEqual(deleted.status_code, 200, deleted.text)
+            self.assertFalse((root / "data" / "uploads" / "1" / f"{payload['id']}.jpg").exists())
+            self.assertEqual(client.get(payload["thumbnail"]).status_code, 404)
 
     def test_http_download_uses_ytdlp_title(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -301,6 +338,27 @@ class MediaStoreTest(unittest.TestCase):
             self.assertEqual([row["id"] for row in rows], [second.json()["id"]])
             user_dir = root / "data" / "uploads" / "1"
             self.assertEqual([path.name for path in user_dir.iterdir()], [f"{second.json()['id']}.mp4"])
+
+    def test_reconcile_keeps_cover_and_sweeps_orphans(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "auth.db"
+            AuthStore(db_path).create_user("alice", "correct horse battery staple")
+            user_dir = root / "data" / "uploads" / "1"
+            user_dir.mkdir(parents=True)
+            (user_dir / ("f" * 32 + ".mp4")).write_bytes(b"media")
+            (user_dir / ("f" * 32 + ".jpg")).write_bytes(b"cover")
+            (user_dir / ("a" * 32 + ".jpg")).write_bytes(b"orphan-cover")
+
+            create_app(db_path, AuthConfig(cookie_secure=False), root)
+
+            media = MediaStore(db_path)
+            rows = media.list_for_user(1)
+            self.assertEqual([row["id"] for row in rows], ["f" * 32])
+            self.assertEqual(
+                sorted(path.name for path in user_dir.iterdir()),
+                sorted(["f" * 32 + ".mp4", "f" * 32 + ".jpg"]),
+            )
 
     def test_reconcile_collapses_to_newest_file(self):
         with tempfile.TemporaryDirectory() as directory:

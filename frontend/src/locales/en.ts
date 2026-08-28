@@ -38,6 +38,7 @@ export default {
   quality480: '480p',
   quality360: '360p',
   download: 'Download video',
+  downloadCover: 'Download cover',
   downloading: 'Downloading…',
   uploading: 'Uploading',
   deleteVideo: 'Delete and choose again',

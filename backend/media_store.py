@@ -29,6 +29,7 @@ def sanitize_filename(name: str) -> str:
 
 
 FILE_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 class MediaStore:
@@ -103,9 +104,14 @@ class MediaStore:
             file_id = path.stem
             if not FILE_ID_PATTERN.fullmatch(file_id):
                 continue
+            if path.suffix.lower() in IMAGE_SUFFIXES:
+                continue
             seen.add(file_id)
             if file_id not in known:
                 self.register(file_id, user_id, path.name, "upload", path.stat().st_size)
+        for path in sorted(directory.iterdir()):
+            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES and path.stem not in seen:
+                path.unlink(missing_ok=True)
         for row in self.list_for_user(user_id):
             if row["id"] not in seen:
                 self.delete(row["id"])

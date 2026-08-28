@@ -9,7 +9,7 @@ from pydantic import AnyHttpUrl, BaseModel
 from .auth.api import AuthConfig
 from .auth.store import AuthStore
 from .config import load_config
-from .media_store import FILE_ID_PATTERN, MediaStore, sanitize_filename
+from .media_store import FILE_ID_PATTERN, IMAGE_SUFFIXES, MediaStore, sanitize_filename
 from .video import VideoQuality
 from .workflow import download_from_config
 
@@ -94,6 +94,12 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         if config.csrf_enabled and (not session or not csrf or not store.csrf_valid(session, csrf) or not origin_allowed(request, origin)):
             raise HTTPException(403, "CSRF validation failed")
 
+    def cover_path(user_id: int, file_id: str) -> Path | None:
+        return next(
+            (path for path in media_dir(user_id).glob(f"{file_id}.*") if path.suffix.lower() in IMAGE_SUFFIXES),
+            None,
+        )
+
     @api.post("/download")
     def download(
         request: Request,
@@ -120,7 +126,12 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         else:
             filename = sanitize_filename(f"ducklingo-{datetime.now():%Y%m%d-%H%M%S}.mp4")
         store_media(user["id"], file_id, filename, "download", output.stat().st_size, "video/mp4")
-        return {"id": file_id, "filename": filename, "size": output.stat().st_size}
+        return {
+            "id": file_id,
+            "filename": filename,
+            "size": output.stat().st_size,
+            "thumbnail": f"/api/video/thumb/{file_id}" if cover_path(user["id"], file_id) else None,
+        }
 
     @api.get("/files")
     def list_files(ducklingo_session: str | None = Cookie(default=None)):
@@ -133,6 +144,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
                 "size": row["size"],
                 "contentType": row["content_type"],
                 "createdAt": row["created_at"],
+                "thumbnail": f"/api/video/thumb/{row['id']}" if cover_path(user["id"], row["id"]) else None,
             }
             for row in media.list_for_user(user["id"])
         ]
@@ -148,11 +160,25 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         matches = [
             path
             for path in media_dir(user["id"]).glob(f"{file_id}.*")
-            if not path.name.endswith(".info.json")
+            if path.suffix.lower() not in IMAGE_SUFFIXES and not path.name.endswith(".info.json")
         ]
         if not matches:
             raise HTTPException(404, "File not found")
         return FileResponse(matches[0], media_type=row["content_type"] or "application/octet-stream", filename=row["filename"])
+
+    @api.get("/thumb/{file_id}")
+    def get_thumb(file_id: str, ducklingo_session: str | None = Cookie(default=None)):
+        user = current(ducklingo_session)
+        if not FILE_ID_PATTERN.fullmatch(file_id):
+            raise HTTPException(404, "Cover not found")
+        row = media.get(file_id)
+        if not row or row["user_id"] != user["id"]:
+            raise HTTPException(404, "Cover not found")
+        cover = cover_path(user["id"], file_id)
+        if not cover:
+            raise HTTPException(404, "Cover not found")
+        base = sanitize_filename(row["filename"]).rsplit(".", 1)[0]
+        return FileResponse(cover, filename=f"{base}-cover{cover.suffix.lower()}")
 
     @api.get("/upload-config")
     def upload_config(ducklingo_session: str | None = Cookie(default=None)):

@@ -25,6 +25,7 @@ const uploadConfig = ref<UploadConfig | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const coverFailed = ref(false)
 let uploadTask: ReturnType<typeof uploadVideo> | null = null
 
 const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
@@ -77,6 +78,7 @@ function messageFrom(errorValue: unknown) {
 async function refreshFiles() {
   try {
     files.value = await listMediaFiles()
+    coverFailed.value = false
   } catch (errorValue) {
     console.error(errorValue)
     if (!previewUrl.value && !files.value.length) error.value = t.value.mediaLoadFailed
@@ -263,9 +265,17 @@ onUnmounted(() => {
               controls
               preload="metadata"
               :src="mediaSrc"
+              :poster="currentFile?.thumbnail || undefined"
               :aria-label="displayName"
             ></video>
-            <audio v-else class="w-full" controls :src="mediaSrc" :aria-label="displayName"></audio>
+            <img
+              v-if="mediaKind !== 'video' && currentFile?.thumbnail && !coverFailed"
+              class="h-24 w-full rounded-box bg-neutral object-cover"
+              :src="currentFile.thumbnail"
+              :alt="displayName"
+              @error="coverFailed = true"
+            />
+            <audio v-else-if="mediaKind !== 'video'" class="w-full" controls :src="mediaSrc" :aria-label="displayName"></audio>
             <div
               v-if="uploading"
               role="progressbar"
@@ -286,6 +296,15 @@ onUnmounted(() => {
               <TrashIcon class="size-5" aria-hidden="true" />
               {{ t.deleteVideo }}
             </button>
+            <a
+              v-if="currentFile?.thumbnail"
+              class="btn btn-outline flex-1 border-base-content/80"
+              :href="currentFile.thumbnail"
+              download
+            >
+              <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
+              {{ t.downloadCover }}
+            </a>
             <button class="btn btn-outline flex-1 border-base-content/80" type="button" @click="downloadCurrent">
               <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
               {{ t.download }}

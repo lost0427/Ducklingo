@@ -38,6 +38,7 @@ export default {
   quality480: '480p',
   quality360: '360p',
   download: '下载视频',
+  downloadCover: '下载封面',
   downloading: '下载中…',
   uploading: '上传中',
   deleteVideo: '删除并重新选择',

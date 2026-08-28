@@ -5,7 +5,15 @@ export type ManagedUser = User & { is_active: boolean; created_at: string; last_
 export type VideoQuality = 'best' | '2160' | '1440' | '1080' | '720' | '480' | '360'
 export type UploadConfig = { maxBytes: number; extensions: string[]; accept: string }
 export type UploadedFile = { id: string; filename: string; size: number; contentType: string }
-export type MediaFile = { id: string; filename: string; kind: 'upload' | 'download'; size: number; contentType?: string; createdAt?: string }
+export type MediaFile = {
+  id: string
+  filename: string
+  kind: 'upload' | 'download'
+  size: number
+  contentType?: string
+  createdAt?: string
+  thumbnail?: string | null
+}
 
 export const user = ref<User | null>(null)
 
