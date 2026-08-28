@@ -19,7 +19,6 @@ const quality = ref<VideoQuality>('1080')
 const downloading = ref(false)
 const error = ref('')
 const files = ref<MediaFile[]>([])
-const dismissed = ref(new Set<string>())
 const previewUrl = ref('')
 const selectedFile = ref<File | null>(null)
 const uploadConfig = ref<UploadConfig | null>(null)
@@ -38,7 +37,7 @@ const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
   { value: '360', label: 'quality360' },
 ]
 
-const currentFile = computed(() => files.value.find((file) => !dismissed.value.has(file.id)) ?? null)
+const currentFile = computed(() => files.value[0] ?? null)
 const mediaSrc = computed(() =>
   previewUrl.value || (currentFile.value ? mediaFileUrl(currentFile.value.id) : ''),
 )
@@ -78,8 +77,9 @@ function messageFrom(errorValue: unknown) {
 async function refreshFiles() {
   try {
     files.value = await listMediaFiles()
-  } catch {
-    // keep showing whatever is already loaded
+  } catch (errorValue) {
+    console.error(errorValue)
+    if (!previewUrl.value && !files.value.length) error.value = t.value.mediaLoadFailed
   }
 }
 
@@ -109,7 +109,7 @@ function releaseLocalPreview() {
   previewUrl.value = ''
 }
 
-function removeMedia() {
+async function removeMedia() {
   uploadTask?.abort()
   uploadTask = null
   uploading.value = false
@@ -118,8 +118,12 @@ function removeMedia() {
   releaseLocalPreview()
   const target = currentFile.value
   if (target) {
-    dismissed.value = new Set(dismissed.value).add(target.id)
-    void deleteUploadedFile(target.id).then(refreshFiles)
+    try {
+      await deleteUploadedFile(target.id)
+    } catch (errorValue) {
+      error.value = messageFrom(errorValue)
+    }
+    await refreshFiles()
   }
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -141,9 +145,9 @@ async function uploadSelectedFile(file: File) {
   try {
     await task.promise
     if (selectedFile.value === file) {
+      await refreshFiles()
       selectedFile.value = null
       releaseLocalPreview()
-      await refreshFiles()
     }
   } catch (errorValue) {
     if (selectedFile.value === file && uploading.value) error.value = messageFrom(errorValue)

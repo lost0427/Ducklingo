@@ -49,5 +49,6 @@ export default {
   invalidFileFormat: 'This file format is not allowed',
   fileTooLarge: 'The file exceeds the limit ({size} maximum)',
   uploadConfigFailed: 'Could not load upload limits. Try again later.',
+  mediaLoadFailed: 'Could not load the media list. Try again later.',
   browseFiles: 'Browse files',
 }

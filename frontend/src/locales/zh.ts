@@ -49,5 +49,6 @@ export default {
   invalidFileFormat: '这个文件格式不在允许范围内',
   fileTooLarge: '文件超过大小限制（最大 {size}）',
   uploadConfigFailed: '上传限制读取失败，请稍后重试',
+  mediaLoadFailed: '媒体列表读取失败，请稍后重试',
   browseFiles: '选择文件',
 }
