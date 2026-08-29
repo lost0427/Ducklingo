@@ -63,9 +63,7 @@ def public_user(user) -> dict:
     }
 
 
-def router(store: AuthStore, config: AuthConfig) -> APIRouter:
-    api = APIRouter(prefix="/api/auth")
-
+def guards(store: AuthStore, config: AuthConfig):
     def current(session: str | None):
         user = store.session_user(session or "", config.idle_minutes)
         if not user:
@@ -85,6 +83,13 @@ def router(store: AuthStore, config: AuthConfig) -> APIRouter:
     def check_origin(request: Request, origin: str | None):
         if config.csrf_enabled and not origin_allowed(request, origin):
             raise HTTPException(403, "Origin validation failed")
+
+    return current, check_csrf, check_origin
+
+
+def router(store: AuthStore, config: AuthConfig) -> APIRouter:
+    api = APIRouter(prefix="/api/auth")
+    current, check_csrf, check_origin = guards(store, config)
 
     def require_admin(user):
         if user["role"] != "admin":

@@ -4,6 +4,7 @@ import { ArrowDownTrayIcon, CloudArrowUpIcon, TrashIcon } from '@heroicons/vue/2
 import {
   deleteUploadedFile,
   downloadVideo,
+  errorMessage,
   getUploadConfig,
   listMediaFiles,
   mediaFileUrl,
@@ -66,15 +67,6 @@ function formatBytes(bytes: number) {
   return Math.round(value) + ' ' + units[unit]
 }
 
-function messageFrom(errorValue: unknown) {
-  const text = errorValue instanceof Error ? errorValue.message : String(errorValue)
-  try {
-    return (JSON.parse(text) as { detail?: string }).detail || text
-  } catch {
-    return text
-  }
-}
-
 async function refreshFiles() {
   try {
     files.value = await listMediaFiles()
@@ -95,7 +87,7 @@ async function submit() {
     if (fileInput.value) fileInput.value.value = ''
     await refreshFiles()
   } catch (errorValue) {
-    error.value = messageFrom(errorValue)
+    error.value = errorMessage(errorValue)
   } finally {
     downloading.value = false
   }
@@ -123,7 +115,7 @@ async function removeMedia() {
     try {
       await deleteUploadedFile(target.id)
     } catch (errorValue) {
-      error.value = messageFrom(errorValue)
+      error.value = errorMessage(errorValue)
     }
     await refreshFiles()
   }
@@ -152,7 +144,7 @@ async function uploadSelectedFile(file: File) {
       releaseLocalPreview()
     }
   } catch (errorValue) {
-    if (selectedFile.value === file && uploading.value) error.value = messageFrom(errorValue)
+    if (selectedFile.value === file && uploading.value) error.value = errorMessage(errorValue)
   } finally {
     if (uploadTask === task) {
       uploadTask = null

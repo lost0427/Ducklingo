@@ -30,7 +30,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (method !== 'GET' && path !== '/api/auth/login') headers.set('X-CSRF-Token', csrfToken())
   const res = await fetch(path, { credentials: 'include', ...init, headers })
   if (res.status === 401) user.value = null
-  if (!res.ok) throw new Error((await res.text()) || res.statusText)
+  if (!res.ok) throw new Error(await responseError(res))
   return res.json() as Promise<T>
 }
 
@@ -116,19 +116,15 @@ export function mediaFileUrl(id: string) {
   return '/api/video/file/' + id
 }
 
-export async function downloadVideo(url: string, quality: VideoQuality): Promise<MediaFile> {
-  const response = await fetch('/api/video/download', {
+export function errorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err)
+}
+
+export function downloadVideo(url: string, quality: VideoQuality) {
+  return request<MediaFile>('/api/video/download', {
     method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRF-Token': csrfToken(),
-    },
     body: JSON.stringify({ url, quality }),
   })
-  if (response.status === 401) user.value = null
-  if (!response.ok) throw new Error(await responseError(response))
-  return (await response.json()) as MediaFile
 }
 
 async function responseError(response: Response) {

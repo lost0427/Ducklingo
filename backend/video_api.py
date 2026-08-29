@@ -6,7 +6,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Cookie, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import AnyHttpUrl, BaseModel
-from .auth.api import AuthConfig
+from .auth.api import AuthConfig, guards
 from .auth.store import AuthStore
 from .config import load_config
 from .media_store import FILE_ID_PATTERN, IMAGE_SUFFIXES, MediaStore, sanitize_filename
@@ -57,6 +57,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
     api = APIRouter(prefix="/api/video")
     upload = load_upload_config(root)
     media = media or MediaStore(root / "data" / "ducklingo.db")
+    current, check_csrf, _ = guards(store, config)
 
     def media_dir(user_id: int) -> Path:
         path = root / "data" / "uploads" / str(user_id)
@@ -77,22 +78,6 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         for child in sorted(uploads_root.iterdir()):
             if child.is_dir() and child.name.isdigit():
                 media.reconcile_user(int(child.name), child)
-
-    def current(session: str | None):
-        user = store.session_user(session or "", config.idle_minutes)
-        if not user:
-            raise HTTPException(401, "Authentication required")
-        return user
-
-    def origin_allowed(request: Request, origin: str | None) -> bool:
-        if not origin:
-            return True
-        allowed = {str(request.base_url).rstrip("/"), *config.allowed_origins}
-        return origin in allowed
-
-    def check_csrf(request: Request, session: str | None, csrf: str | None, origin: str | None):
-        if config.csrf_enabled and (not session or not csrf or not store.csrf_valid(session, csrf) or not origin_allowed(request, origin)):
-            raise HTTPException(403, "CSRF validation failed")
 
     def cover_path(user_id: int, file_id: str) -> Path | None:
         return next(

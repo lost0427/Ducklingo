@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { changePassword, createUser, listUsers, type ManagedUser, patchUser, user } from '../api'
+import { changePassword, createUser, errorMessage, listUsers, type ManagedUser, patchUser, user } from '../api'
 import { t } from '../prefs'
 
 const currentPassword = ref('')
@@ -12,16 +12,6 @@ const createDialog = ref<HTMLDialogElement | null>(null)
 const newUsername = ref('')
 const newUserPassword = ref('')
 const newRole = ref<'user' | 'admin'>('user')
-
-function detail(err: unknown) {
-  const text = err instanceof Error ? err.message : String(err)
-  try {
-    const parsed = JSON.parse(text) as { detail?: string }
-    return parsed.detail || text
-  } catch {
-    return text
-  }
-}
 
 async function loadUsers() {
   if (user.value?.role !== 'admin') return
@@ -37,7 +27,7 @@ async function savePassword() {
     newPassword.value = ''
     passwordMsg.value = t.value.passwordChanged
   } catch (err) {
-    error.value = detail(err)
+    error.value = errorMessage(err)
   }
 }
 
@@ -49,7 +39,7 @@ async function toggleActive(row: ManagedUser, event: Event) {
     await loadUsers()
   } catch (err) {
     ;(event.target as HTMLInputElement).checked = row.is_active
-    error.value = detail(err)
+    error.value = errorMessage(err)
   }
 }
 
@@ -63,7 +53,7 @@ async function submitCreate() {
     createDialog.value?.close()
     await loadUsers()
   } catch (err) {
-    error.value = detail(err)
+    error.value = errorMessage(err)
   }
 }
 
