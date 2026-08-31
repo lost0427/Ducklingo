@@ -83,6 +83,7 @@ async function submit() {
   try {
     releaseLocalPreview()
     await downloadVideo(url.value.trim(), quality.value)
+    url.value = ''
     selectedFile.value = null
     if (fileInput.value) fileInput.value.value = ''
     await refreshFiles()
