@@ -10,6 +10,7 @@ from pathlib import Path
 
 GITHUB_API = "https://api.github.com"
 YTDLP_RELEASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download"
+UNTRACKER_RELEASE = "https://github.com/lost0427/Untracker-rs/releases/download/latest"
 
 
 def _download(url: str, target: Path) -> None:
@@ -43,6 +44,24 @@ def ensure_ytdlp(root: Path) -> Path:
         _download(f"{YTDLP_RELEASE}/{asset}", target)
     if not target.exists():
         raise FileNotFoundError(target)
+    if system == "linux":
+        target.chmod(target.stat().st_mode | 0o111)
+    return target
+
+
+def ensure_untracker(root: Path) -> Path:
+    # No self-update (untracker has no -U); delete the cached binary to
+    # refresh, or pin a version tag by replacing "latest" in the URL above.
+    system = _platform()
+    if system == "windows":
+        asset, name = "untracker-x86_64-pc-windows-msvc.exe", "untracker.exe"
+    else:
+        asset, name = "untracker-x86_64-unknown-linux-musl", "untracker"
+    target = root / name
+    if target.exists():
+        return target
+    root.mkdir(parents=True, exist_ok=True)
+    _download(f"{UNTRACKER_RELEASE}/{asset}", target)
     if system == "linux":
         target.chmod(target.stat().st_mode | 0o111)
     return target

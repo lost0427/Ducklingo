@@ -1,8 +1,31 @@
+import json
+import subprocess
 from pathlib import Path
 
 from .config import load_config, project_path
-from .tools import ensure_ffmpeg, ensure_ytdlp
+from .tools import ensure_ffmpeg, ensure_untracker, ensure_ytdlp
 from .video import VideoQuality, download_video
+
+
+def untrack_url(url: str, root: Path | None = None) -> str:
+    # Best-effort display cleaning: missing config, missing binary, nonzero
+    # exit, timeout or parse failure all fall back to the raw URL so a
+    # finished download is never broken. Network errors inside untracker
+    # already return the URL unchanged.
+    root = root or Path.cwd()
+    try:
+        config = load_config(project_path("config/config.toml", root))
+        binary = ensure_untracker(project_path(config["tools"]["data_dir"], root))
+        result = subprocess.run(
+            [str(binary), "--json", "--timeout", "5", url],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        return str(json.loads(result.stdout)["output"])
+    except Exception:
+        return url
 
 
 def download_from_config(

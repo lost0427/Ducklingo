@@ -13,6 +13,7 @@ from backend.auth.store import AuthStore
 from backend.media_store import MediaStore, sanitize_filename
 from backend.video import download_video, format_selector
 from backend.video_api import load_upload_config
+from backend.workflow import untrack_url
 
 
 class VideoDownloadTest(unittest.TestCase):
@@ -425,6 +426,39 @@ class MediaStoreTest(unittest.TestCase):
             self.assertEqual([row["id"] for row in rows], [orphan_id])
             self.assertEqual(rows[0]["filename"], f"{orphan_id}.mp4")
             self.assertFalse((user_dir / "leftover.part").exists())
+
+
+class UntrackUrlTest(unittest.TestCase):
+    def test_untrack_url_cleans_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config").mkdir()
+            (root / "config" / "config.toml").write_text('[tools]\ndata_dir = "data/tools"\n', encoding="utf-8")
+            binary = root / "untracker.exe"
+            binary.write_bytes(b"")
+            result = type(
+                "Result",
+                (),
+                {"returncode": 0, "stdout": '{"output":"https://x.com/a"}', "stderr": ""},
+            )()
+            with (
+                patch("backend.workflow.ensure_untracker", return_value=binary),
+                patch("backend.workflow.subprocess.run", return_value=result) as run,
+            ):
+                self.assertEqual(untrack_url("https://x.com/a?s=20", root), "https://x.com/a")
+            self.assertEqual(
+                run.call_args.args[0],
+                [str(binary), "--json", "--timeout", "5", "https://x.com/a?s=20"],
+            )
+
+    def test_untrack_url_falls_back_on_tool_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("backend.workflow.ensure_untracker", side_effect=RuntimeError("no binary")):
+                self.assertEqual(untrack_url("https://x.com/a?s=20", Path(directory)), "https://x.com/a?s=20")
+
+    def test_untrack_url_falls_back_without_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(untrack_url("https://x.com/a?s=20", Path(directory)), "https://x.com/a?s=20")
 
 
 if __name__ == "__main__":

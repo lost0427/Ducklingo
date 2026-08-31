@@ -11,7 +11,7 @@ from .auth.store import AuthStore
 from .config import load_config
 from .media_store import FILE_ID_PATTERN, IMAGE_SUFFIXES, MediaStore, sanitize_filename
 from .video import VideoQuality
-from .workflow import download_from_config
+from .workflow import download_from_config, untrack_url
 
 
 DEFAULT_UPLOAD_EXTENSIONS = ("mp4", "mov", "avi", "mkv", "webm", "m4v", "wav", "mp3", "flac", "m4a")
@@ -110,7 +110,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
             filename = sanitize_filename(title) + ".mp4"
         else:
             filename = sanitize_filename(f"ducklingo-{datetime.now():%Y%m%d-%H%M%S}.mp4")
-        store_media(user["id"], file_id, filename, "download", output.stat().st_size, "video/mp4", source_url=str(data.url))
+        store_media(user["id"], file_id, filename, "download", output.stat().st_size, "video/mp4", source_url=untrack_url(str(data.url), root))
         return {
             "id": file_id,
             "filename": filename,
