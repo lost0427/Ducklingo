@@ -78,7 +78,7 @@ def resolve_vad(root: Path) -> Path:
             path = directory / entry["filename"]
             if path.exists():
                 return path
-    for path in sorted(directory.glob("silero*.bin")):
+    for path in sorted(directory.glob("*silero*.bin")):
         return path
     raise RuntimeError("VAD model not downloaded")
 

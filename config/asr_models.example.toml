@@ -1,12 +1,12 @@
-# Download URLs below are best-effort; verify against the
-# CrispASR release / HuggingFace page before relying on them.
+# ASR model URLs match crispasr's built-in registry (registry_lookup);
+# the VAD model is the upstream whisper.cpp Silero asset.
 
 [[models]]
 id = "silero-vad"
 kind = "vad"
 name = "Silero VAD"
-url = "https://github.com/CrispStrobe/CrispASR/releases/download/latest/silero-v6.2.0.bin"
-filename = "silero-v6.2.0.bin"
+url = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin"
+filename = "ggml-silero-v6.2.0.bin"
 
 [[models]]
 id = "ggml-base-en"

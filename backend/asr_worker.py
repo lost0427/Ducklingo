@@ -6,12 +6,12 @@ from pathlib import Path
 import numpy as np
 
 
-def read_pcm(path: Path) -> np.memmap:
-    # Whether the binding copies this array into its own buffer is unverified:
-    # if it does, RAM returns to full size and this change is merely harmless.
-    # Check RSS in the real-model smoke test. Fallback if ever needed:
-    # silence-aligned outer chunking via plan_chunks + offset merge.
-    return np.memmap(path, dtype=np.float32, mode="r")
+def read_pcm(path: Path) -> np.ndarray:
+    # The binding copies plain ndarrays straight through (verified: no extra
+    # allocation for a 115 MB input), but it materializes memmap inputs into
+    # its own buffer, so a memmap saves nothing. Read the f32le raw PCM
+    # produced by ffmpeg directly; residency is one audio-sized array.
+    return np.fromfile(path, dtype=np.float32)
 
 
 def words_from_segments(segments) -> list[dict]:

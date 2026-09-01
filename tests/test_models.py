@@ -135,15 +135,14 @@ class CheckpointWordsTest(unittest.TestCase):
 
 
 class WorkerHelpersTest(unittest.TestCase):
-    def test_read_pcm_memmaps_float32_samples(self):
+    def test_read_pcm_loads_float32_samples(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "a.pcm"
             path.write_bytes(struct.pack("<2f", 1.0, -0.5))
             pcm = read_pcm(path)
-            self.assertIsInstance(pcm, np.memmap)
+            self.assertIsInstance(pcm, np.ndarray)
             self.assertAlmostEqual(float(pcm[0]), 1.0)
             self.assertAlmostEqual(float(pcm[1]), -0.5)
-            pcm._mmap.close()  # release the Windows file lock before cleanup
 
     def test_words_from_segments(self):
         segments = [
