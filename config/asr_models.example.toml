@@ -1,0 +1,37 @@
+# CrispASR release / HuggingFace page before relying on them.
+
+[[models]]
+id = "silero-vad"
+kind = "vad"
+name = "Silero VAD"
+url = "https://github.com/CrispStrobe/CrispASR/releases/download/latest/silero-v6.2.0.bin"
+filename = "silero-v6.2.0.bin"
+
+[[models]]
+id = "ggml-base-en"
+kind = "asr"
+name = "Whisper base.en (ggml)"
+url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+filename = "ggml-base.en.bin"
+
+[[models]]
+id = "ggml-small"
+kind = "asr"
+name = "Whisper small (ggml, multilingual)"
+url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
+filename = "ggml-small.bin"
+
+# Add LLM-backend models (qwen3 etc.) with an aligner entry for word timestamps:
+# [[models]]
+# id = "qwen3-asr-1.7b-q8"
+# kind = "asr"
+# name = "Qwen3 ASR 1.7B (Q8_0)"
+# url = "https://huggingface.co/....gguf"
+# filename = "qwen3-asr-1.7b-q8_0.gguf"
+#
+# [[models]]
+# id = "qwen3-aligner"
+# kind = "aligner"
+# name = "CTC aligner for qwen3"
+# url = "https://huggingface.co/....gguf"
+# filename = "qwen3-aligner.gguf"

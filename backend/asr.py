@@ -1,10 +1,14 @@
 import asyncio
 import json
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import httpx
+
+from .models import resolve_model, resolve_vad
 
 SILENCE_RE = re.compile(r"silence_start: ([0-9.]+)")
 BITRATE_BYTES_PER_SECOND = 4000  # 32 kbps mp3
@@ -193,6 +197,62 @@ async def transcribe_chunk(path: Path, settings: dict, asr: dict) -> list[dict]:
                     )
             await asyncio.sleep(2 * (attempt + 1))
     raise RuntimeError("unreachable")
+
+
+def checkpoint_words(state: dict) -> list[dict]:
+    if "words" in state:
+        return state["words"]
+    return [word for chunk in state.get("chunks", []) for word in chunk["words"]]
+
+
+async def transcribe_local(
+    report,
+    source: Path,
+    workdir: Path,
+    file_id: str,
+    settings: dict,
+    asr: dict,
+    ffmpeg: Path,
+    root: Path,
+) -> list[dict]:
+    timeout = float(asr.get("local_timeout_seconds", 3600))
+    report("extract")
+    wav = await asyncio.to_thread(
+        extract_audio, source, workdir / f"{file_id}.wav", ffmpeg, "wav", timeout
+    )
+    model = await asyncio.to_thread(resolve_model, root, settings["model"])
+    vad = await asyncio.to_thread(resolve_vad, root)
+    aligner = await asyncio.to_thread(resolve_model, root, settings["aligner"]) if settings.get("aligner") else None
+    output = workdir / f"{file_id}.words.json"
+    command = [
+        sys.executable, "-m", "backend.asr_worker",
+        "--model", str(model), "--pcm", str(wav), "--vad", str(vad), "--output", str(output),
+    ]
+    if aligner:
+        command += ["--aligner", str(aligner)]
+    if settings.get("language"):
+        command += ["--language", settings["language"]]
+    report("transcribe")
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(root),
+        env={**os.environ, "PYTHONPATH": str(root)},
+    )
+    try:
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        raise RuntimeError("local transcription timed out") from None
+    if process.returncode:
+        detail = stderr.decode(errors="replace").strip()[-500:]
+        raise RuntimeError(f"local transcription failed: {detail}")
+    words = json.loads(output.read_text("utf-8"))["words"]
+    if not words:
+        raise RuntimeError("local transcription produced no word timestamps")
+    save_checkpoint(workdir / f"{file_id}.asr.json", {"kind": "local", "words": words})
+    return words
 
 
 async def transcribe_cloud(

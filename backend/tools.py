@@ -13,12 +13,17 @@ YTDLP_RELEASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download"
 UNTRACKER_RELEASE = "https://github.com/lost0427/Untracker-rs/releases/download/latest"
 
 
-def _download(url: str, target: Path) -> None:
+def download_file(url: str, target: Path, on_progress=None) -> None:
     with urllib.request.urlopen(url, timeout=60) as response:
         temp = target.with_suffix(target.suffix + ".part")
+        total = int(response.headers.get("Content-Length") or 0)
+        received = 0
         with temp.open("wb") as file:
             while chunk := response.read(1024 * 1024):
                 file.write(chunk)
+                received += len(chunk)
+                if on_progress:
+                    on_progress(received, total)
         if temp.stat().st_size == 0:
             raise OSError(f"empty download: {url}")
         temp.replace(target)
@@ -41,7 +46,7 @@ def ensure_ytdlp(root: Path) -> Path:
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or "yt-dlp update failed")
     else:
-        _download(f"{YTDLP_RELEASE}/{asset}", target)
+        download_file(f"{YTDLP_RELEASE}/{asset}", target)
     if not target.exists():
         raise FileNotFoundError(target)
     if system == "linux":
@@ -61,7 +66,7 @@ def ensure_untracker(root: Path) -> Path:
     if target.exists():
         return target
     root.mkdir(parents=True, exist_ok=True)
-    _download(f"{UNTRACKER_RELEASE}/{asset}", target)
+    download_file(f"{UNTRACKER_RELEASE}/{asset}", target)
     if system == "linux":
         target.chmod(target.stat().st_mode | 0o111)
     return target
@@ -90,7 +95,7 @@ def ensure_ffmpeg(root: Path, tag: str, variant: str = "gpl") -> Path:
     archive = root / "ffmpeg" / name
     archive.parent.mkdir(parents=True, exist_ok=True)
     if not archive.exists():
-        _download(url, archive)
+        download_file(url, archive)
     install.mkdir(parents=True, exist_ok=True)
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as file:
