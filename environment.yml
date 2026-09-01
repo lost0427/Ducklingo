@@ -10,3 +10,5 @@ dependencies:
       - uvicorn
       - argon2-cffi
       - httpx
+      - crispasr==0.8.31
+      - numpy
