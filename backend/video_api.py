@@ -143,11 +143,13 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         row = media.get(file_id)
         if not row or row["user_id"] != user["id"]:
             raise HTTPException(404, "File not found")
-        matches = [
+        extension = Path(row["filename"]).suffix.lower()
+        candidates = [
             path
             for path in media_dir(user["id"]).glob(f"{file_id}.*")
             if path.suffix.lower() not in IMAGE_SUFFIXES and not path.name.endswith(".info.json")
         ]
+        matches = [path for path in candidates if path.suffix.lower() == extension] or candidates
         if not matches:
             raise HTTPException(404, "File not found")
         return FileResponse(matches[0], media_type=row["content_type"] or "application/octet-stream", filename=row["filename"])

@@ -80,6 +80,10 @@ class JobStore:
                 (file_id, kind),
             ).fetchone()
 
+    def delete(self, file_id: str, kind: str) -> None:
+        with self._db() as db:
+            db.execute("DELETE FROM jobs WHERE file_id = ? AND kind = ?", (file_id, kind))
+
     def fail_stale(self) -> int:
         with self._db() as db:
             cursor = db.execute(

@@ -4,10 +4,13 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .asr_api import router as asr_router
 from .auth.api import AuthConfig, router
 from .auth.store import AuthStore
 from .config import load_config
+from .jobs import JobRunner, JobStore, load_job_config
 from .media_store import MediaStore
+from .settings_store import SettingsStore
 from .video_api import router as video_router
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,8 +29,14 @@ def create_app(db_path: str | Path = "data/ducklingo.db", config: AuthConfig | N
     auth_config = config or load_auth_config()
     store = AuthStore(db_path)
     media = MediaStore(db_path)
+    settings = SettingsStore(db_path)
+    jobs = JobStore(db_path)
+    concurrency = load_job_config(root)
+    runner = JobRunner(jobs, cloud_concurrency=concurrency["cloud"], local_concurrency=concurrency["local"])
+    runner.fail_stale()
     app.include_router(router(store, auth_config))
     app.include_router(video_router(store, auth_config, root, media))
+    app.include_router(asr_router(store, auth_config, root, media, settings, runner))
 
     @app.middleware("http")
     async def security_headers(request, call_next):

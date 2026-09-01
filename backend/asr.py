@@ -146,7 +146,7 @@ def detect_silences(path: Path, ffmpeg: Path, timeout: float) -> list[float]:
 def split_audio(mp3: Path, chunks: list[dict], ffmpeg: Path, workdir: Path, file_id: str, timeout: float) -> list[Path]:
     paths = []
     for i, chunk in enumerate(chunks):
-        target = workdir / f"{file_id}.part-{i}.mp3"
+        target = workdir / f"{file_id}.asr-{i}.mp3"
         if not target.exists():
             _run_ffmpeg(
                 [str(ffmpeg), "-y", "-ss", f"{chunk['start']:.3f}", "-t", f"{chunk['end'] - chunk['start']:.3f}",
@@ -218,12 +218,12 @@ async def transcribe_local(
     timeout = float(asr.get("local_timeout_seconds", 3600))
     report("extract")
     wav = await asyncio.to_thread(
-        extract_audio, source, workdir / f"{file_id}.wav", ffmpeg, "wav", timeout
+        extract_audio, source, workdir / f"{file_id}.asr.wav", ffmpeg, "wav", timeout
     )
     model = await asyncio.to_thread(resolve_model, root, settings["model"])
     vad = await asyncio.to_thread(resolve_vad, root)
     aligner = await asyncio.to_thread(resolve_model, root, settings["aligner"]) if settings.get("aligner") else None
-    output = workdir / f"{file_id}.words.json"
+    output = workdir / f"{file_id}.asr.words.json"
     command = [
         sys.executable, "-m", "backend.asr_worker",
         "--model", str(model), "--pcm", str(wav), "--vad", str(vad), "--output", str(output),
@@ -267,7 +267,7 @@ async def transcribe_cloud(
     timeout = float(asr.get("timeout_seconds", 300))
     report("extract")
     mp3 = await asyncio.to_thread(
-        extract_audio, source, workdir / f"{file_id}.mp3", ffmpeg, "mp3", timeout
+        extract_audio, source, workdir / f"{file_id}.asr.mp3", ffmpeg, "mp3", timeout
     )
     duration = await asyncio.to_thread(probe_duration, mp3, ffmpeg)
     ckpt_path = workdir / f"{file_id}.asr.json"
