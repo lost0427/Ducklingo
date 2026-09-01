@@ -422,6 +422,7 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
         <fieldset class="fieldset">
           <label class="label p-0 text-sm font-semibold" for="asr-language">{{ t.asrLanguage }}</label>
           <input id="asr-language" v-model="asrLanguage" class="input w-full bg-base-200" :disabled="asrRunning" />
+          <p class="label">{{ t.asrLanguageHint }}</p>
         </fieldset>
         <p class="flex items-center gap-2 text-sm">
           <span v-if="asrRunning" class="loading loading-spinner loading-sm" aria-hidden="true"></span>
