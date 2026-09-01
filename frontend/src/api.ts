@@ -127,6 +127,55 @@ export function downloadVideo(url: string, quality: VideoQuality) {
   })
 }
 
+export type AsrService = 'asr' | 'sentence'
+export type SettingsView = { own: Record<string, string> | null; shared: Record<string, string> | null; has_shared: boolean }
+export type AsrModel = {
+  id: string
+  kind: string
+  name: string
+  filename: string
+  installed: boolean
+  manual: boolean
+  download?: { status: string; received: number; total: number; error?: string } | null
+}
+export type JobStatus = { status: string; stage: string; error: string; has_srt: boolean }
+
+export function getAsrSettings() {
+  return request<Record<AsrService, SettingsView>>('/api/asr/settings')
+}
+
+export function putAsrSettings(service: AsrService, scope: 'user' | 'shared', values: Record<string, string>) {
+  return request<{ ok: boolean }>('/api/asr/settings', { method: 'PUT', body: JSON.stringify({ service, scope, values }) })
+}
+
+export function listAsrModels() {
+  return request<AsrModel[]>('/api/asr/models')
+}
+
+export function downloadAsrModel(id: string) {
+  return request<{ ok: boolean }>('/api/asr/models/download', { method: 'POST', body: JSON.stringify({ id }) })
+}
+
+export function startAsr(fileId: string, language?: string) {
+  return request<{ ok: boolean }>('/api/asr/start', { method: 'POST', body: JSON.stringify({ file_id: fileId, language }) })
+}
+
+export function asrStatus(fileId: string) {
+  return request<JobStatus>('/api/asr/status/' + fileId)
+}
+
+export function cancelAsr(fileId: string) {
+  return request<{ ok: boolean }>('/api/asr/cancel/' + fileId, { method: 'POST' })
+}
+
+export function resetAsr(fileId: string) {
+  return request<{ ok: boolean }>('/api/asr/reset/' + fileId, { method: 'POST' })
+}
+
+export function asrSrtUrl(fileId: string) {
+  return '/api/asr/srt/' + fileId
+}
+
 async function responseError(response: Response) {
   const text = await response.text()
   try {
