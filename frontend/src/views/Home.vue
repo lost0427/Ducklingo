@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowDownTrayIcon, CloudArrowUpIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import {
+  asrStatus,
+  asrSrtUrl,
+  cancelAsr,
   deleteUploadedFile,
   downloadVideo,
   errorMessage,
   getUploadConfig,
   listMediaFiles,
   mediaFileUrl,
+  resetAsr,
+  startAsr,
   uploadVideo,
+  type JobStatus,
   type MediaFile,
   type UploadConfig,
   type VideoQuality,
@@ -28,6 +34,27 @@ const uploading = ref(false)
 const uploadProgress = ref(0)
 const coverFailed = ref(false)
 let uploadTask: ReturnType<typeof uploadVideo> | null = null
+
+const job = ref<JobStatus | null>(null)
+const asrLanguage = ref('')
+const asrBusy = ref(false)
+let asrTimer: number | undefined
+
+const asrRunning = computed(() => ['queued', 'running', 'cancelling'].includes(job.value?.status ?? ''))
+const asrStageText = computed(() => {
+  const status = job.value
+  if (!status || status.status === 'idle') return t.value.asrIdle
+  if (status.status === 'done') return t.value.asrDone
+  if (status.status === 'cancelled') return t.value.asrCancelled
+  if (status.status === 'queued') return t.value.asrStageQueue
+  const stages: Record<string, string> = {
+    extract: t.value.asrStageExtract,
+    transcribe: t.value.asrStageTranscribe,
+    sentence: t.value.asrStageSentence,
+  }
+  return stages[status.stage] ?? t.value.asrStageTranscribe
+})
+const asrResumable = computed(() => ['error', 'cancelled'].includes(job.value?.status ?? ''))
 
 const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
   { value: 'best', label: 'qualityBest' },
@@ -193,16 +220,63 @@ function onDrop(event: DragEvent) {
   chooseFile(event.dataTransfer?.files)
 }
 
+async function refreshAsr() {
+  if (!currentFile.value) {
+    job.value = null
+    return
+  }
+  job.value = await asrStatus(currentFile.value.id).catch(() => null)
+}
+
+async function startTranscribe() {
+  if (!currentFile.value) return
+  asrBusy.value = true
+  error.value = ''
+  try {
+    await startAsr(currentFile.value.id, asrLanguage.value || undefined)
+    await refreshAsr()
+  } catch (err) {
+    error.value = errorMessage(err)
+  } finally {
+    asrBusy.value = false
+  }
+}
+
+async function cancelTranscribe() {
+  if (!currentFile.value) return
+  try {
+    await cancelAsr(currentFile.value.id)
+    await refreshAsr()
+  } catch (err) {
+    error.value = errorMessage(err)
+  }
+}
+
+async function resetTranscribe() {
+  if (!currentFile.value) return
+  try {
+    await resetAsr(currentFile.value.id)
+    await refreshAsr()
+  } catch (err) {
+    error.value = errorMessage(err)
+  }
+}
+
 onMounted(() => {
   getUploadConfig()
     .then((config) => (uploadConfig.value = config))
     .catch(() => (error.value = t.value.uploadConfigFailed))
   void refreshFiles()
+  asrTimer = window.setInterval(() => {
+    if (asrRunning.value) void refreshAsr()
+  }, 2000)
 })
 onUnmounted(() => {
   uploadTask?.abort()
   releaseLocalPreview()
+  window.clearInterval(asrTimer)
 })
+watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
 </script>
 
 <template>
@@ -337,5 +411,51 @@ onUnmounted(() => {
         <span>{{ error }}</span>
       </div>
     </form>
+  </section>
+
+  <section class="mx-auto max-w-2xl pb-8">
+    <h1 class="mb-4 text-3xl font-bold tracking-tight sm:text-4xl"><span class="text-base-content/80">b.</span> {{ t.transcribe }}</h1>
+    <div class="space-y-4 rounded-box border border-base-content/30 p-3 sm:p-4">
+      <p v-if="!currentFile" class="text-sm text-base-content/60">{{ t.needMediaFirst }}</p>
+      <template v-else>
+        <p class="truncate text-sm font-semibold">{{ displayName }}</p>
+        <fieldset class="fieldset">
+          <label class="label p-0 text-sm font-semibold" for="asr-language">{{ t.asrLanguage }}</label>
+          <input id="asr-language" v-model="asrLanguage" class="input w-full bg-base-200" :disabled="asrRunning" />
+        </fieldset>
+        <p class="flex items-center gap-2 text-sm">
+          <span v-if="asrRunning" class="loading loading-spinner loading-sm" aria-hidden="true"></span>
+          <span :class="job?.status === 'error' && 'text-error'">{{ asrStageText }}</span>
+        </p>
+        <div v-if="job?.error" role="alert" class="alert alert-error">
+          <span class="break-all">{{ job.error }}</span>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button
+            class="btn btn-outline flex-1 border-base-content/80"
+            type="button"
+            :disabled="asrBusy || asrRunning"
+            @click="startTranscribe"
+          >
+            {{ asrResumable ? t.asrResume : t.asrStart }}
+          </button>
+          <button v-if="asrRunning" class="btn btn-outline flex-1 border-base-content/80" type="button" @click="cancelTranscribe">
+            {{ t.asrCancel }}
+          </button>
+          <button
+            v-if="asrResumable || job?.status === 'done'"
+            class="btn btn-outline flex-1 border-base-content/80"
+            type="button"
+            @click="resetTranscribe"
+          >
+            {{ t.asrReset }}
+          </button>
+          <a v-if="job?.has_srt" class="btn btn-outline flex-1 border-base-content/80" :href="asrSrtUrl(currentFile.id)" download>
+            <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
+            {{ t.downloadSrt }}
+          </a>
+        </div>
+      </template>
+    </div>
   </section>
 </template>
