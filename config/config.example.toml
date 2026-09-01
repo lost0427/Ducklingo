@@ -8,6 +8,22 @@ retries = 3
 retry_delay_seconds = 2
 timeout_seconds = 3600
 
+[asr]
+timeout_seconds = 300        # cloud 单请求超时
+local_timeout_seconds = 3600 # local worker 子进程总超时
+retries = 2                  # cloud 单块重试次数
+chunk_seconds = 600          # 静音对齐切分目标块长
+cloud_concurrency = 4        # cloud 并发上限
+local_concurrency = 1        # local 并发上限
+max_chunk_mb = 24            # cloud 单请求体预算
+
+[sentence]
+max_chars_latin = 42         # 拉丁及非 CJK 脚本最大句长
+max_chars_cjk = 21           # CJK 脚本最大句长
+batch_words = 800            # LLM 分批词数
+retries = 2                  # 单批 LLM 调用重试次数
+response_format = ""         # 开关：空=不发送该参数；设置后透传
+
 [upload]
 max_file_size_gb = 2
 allowed_extensions = ["mp4", "mov", "avi", "mkv", "webm", "m4v", "wav", "mp3", "flac", "m4a"]
