@@ -1,18 +1,17 @@
 import argparse
 import inspect
 import json
-import wave
 from pathlib import Path
 
 import numpy as np
 
 
-def read_pcm(path: Path) -> np.ndarray:
-    with wave.open(str(path), "rb") as audio:
-        if audio.getframerate() != 16000 or audio.getnchannels() != 1:
-            raise ValueError("pcm must be 16 kHz mono wav")
-        data = np.frombuffer(audio.readframes(audio.getnframes()), dtype=np.int16)
-    return data.astype(np.float32) / 32768.0
+def read_pcm(path: Path) -> np.memmap:
+    # Whether the binding copies this array into its own buffer is unverified:
+    # if it does, RAM returns to full size and this change is merely harmless.
+    # Check RSS in the real-model smoke test. Fallback if ever needed:
+    # silence-aligned outer chunking via plan_chunks + offset merge.
+    return np.memmap(path, dtype=np.float32, mode="r")
 
 
 def words_from_segments(segments) -> list[dict]:

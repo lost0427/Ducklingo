@@ -1,8 +1,11 @@
+import struct
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import numpy as np
 
 from backend.models import (
     download_model,
@@ -12,7 +15,7 @@ from backend.models import (
     resolve_vad,
     snapshot_status,
 )
-from backend.asr_worker import read_pcm, words_from_segments, wave
+from backend.asr_worker import read_pcm, words_from_segments
 from backend.asr import checkpoint_words
 
 
@@ -132,27 +135,15 @@ class CheckpointWordsTest(unittest.TestCase):
 
 
 class WorkerHelpersTest(unittest.TestCase):
-    def test_read_pcm_scales_int16(self):
+    def test_read_pcm_memmaps_float32_samples(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "a.wav"
-            with wave.open(str(path), "wb") as audio:
-                audio.setnchannels(1)
-                audio.setsampwidth(2)
-                audio.setframerate(16000)
-                audio.writeframes((32767).to_bytes(2, "little", signed=True))
+            path = Path(directory) / "a.pcm"
+            path.write_bytes(struct.pack("<2f", 1.0, -0.5))
             pcm = read_pcm(path)
-            self.assertAlmostEqual(float(pcm[0]), 1.0, places=3)
-
-    def test_read_pcm_rejects_wrong_format(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "a.wav"
-            with wave.open(str(path), "wb") as audio:
-                audio.setnchannels(2)
-                audio.setsampwidth(2)
-                audio.setframerate(44100)
-                audio.writeframes(b"\x00" * 8)
-            with self.assertRaises(ValueError):
-                read_pcm(path)
+            self.assertIsInstance(pcm, np.memmap)
+            self.assertAlmostEqual(float(pcm[0]), 1.0)
+            self.assertAlmostEqual(float(pcm[1]), -0.5)
+            pcm._mmap.close()  # release the Windows file lock before cleanup
 
     def test_words_from_segments(self):
         segments = [

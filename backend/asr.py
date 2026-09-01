@@ -118,7 +118,10 @@ def ffprobe_path(ffmpeg: Path) -> Path:
 
 def extract_audio(source: Path, target: Path, ffmpeg: Path, fmt: str, timeout: float) -> Path:
     command = [str(ffmpeg), "-y", "-i", str(source), "-vn", "-ac", "1", "-ar", "16000"]
-    command += ["-c:a", "libmp3lame", "-b:a", "32k"] if fmt == "mp3" else ["-c:a", "pcm_s16le"]
+    if fmt == "mp3":
+        command += ["-c:a", "libmp3lame", "-b:a", "32k"]
+    else:
+        command += ["-f", "f32le", "-c:a", "pcm_f32le"]
     command.append(str(target))
     _run_ffmpeg(command, timeout, "audio extraction")
     return target
@@ -217,8 +220,8 @@ async def transcribe_local(
 ) -> list[dict]:
     timeout = float(asr.get("local_timeout_seconds", 3600))
     report("extract")
-    wav = await asyncio.to_thread(
-        extract_audio, source, workdir / f"{file_id}.asr.wav", ffmpeg, "wav", timeout
+    pcm = await asyncio.to_thread(
+        extract_audio, source, workdir / f"{file_id}.asr.pcm", ffmpeg, "pcm", timeout
     )
     model = await asyncio.to_thread(resolve_model, root, settings["model"])
     vad = await asyncio.to_thread(resolve_vad, root)
@@ -226,7 +229,7 @@ async def transcribe_local(
     output = workdir / f"{file_id}.asr.words.json"
     command = [
         sys.executable, "-m", "backend.asr_worker",
-        "--model", str(model), "--pcm", str(wav), "--vad", str(vad), "--output", str(output),
+        "--model", str(model), "--pcm", str(pcm), "--vad", str(vad), "--output", str(output),
     ]
     if aligner:
         command += ["--aligner", str(aligner)]
