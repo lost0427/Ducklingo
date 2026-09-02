@@ -71,13 +71,15 @@ async function startDownload(id: string) {
 }
 
 function downloadText(model: AsrModel) {
+  if (model.installed) return t.value.modelDone
   const state = model.download
-  if (!state || state.status === 'done') return t.value.modelDone
-  if (state.status === 'error') return `${t.value.modelError}: ${state.error ?? ''}`
-  if (state.status === 'downloading' && state.total) {
-    return `${t.value.modelDownloading} ${Math.round((state.received / state.total) * 100)}%`
+  if (state?.status === 'error') return `${t.value.modelError}: ${state.error ?? ''}`
+  if (state?.status === 'downloading') {
+    return state.total
+      ? `${t.value.modelDownloading} ${Math.round((state.received / state.total) * 100)}%`
+      : t.value.modelDownloading
   }
-  return t.value.modelDownloading
+  return ''
 }
 
 async function loadUsers() {
@@ -250,7 +252,11 @@ onMounted(() => {
             <p class="truncate text-sm font-semibold">{{ model.name }}</p>
             <p class="text-xs text-base-content/60">{{ model.kind }} · {{ model.filename }}</p>
           </div>
-          <span class="badge badge-sm shrink-0" :class="model.installed ? 'badge-success' : 'badge-ghost'">
+          <span
+            v-if="downloadText(model)"
+            class="badge badge-sm shrink-0"
+            :class="model.installed ? 'badge-success' : model.download?.status === 'error' ? 'badge-error' : 'badge-ghost'"
+          >
             {{ downloadText(model) }}
           </span>
           <button v-if="!model.installed" class="btn btn-sm shrink-0" type="button" @click="startDownload(model.id)">
