@@ -5,10 +5,11 @@ dependencies:
   - python=3.12
   - pip
   - pip:
+      - --extra-index-url https://crispstrobe.github.io/CrispASR/whl/cuda/
       - maturin>=1.8,<2
       - fastapi
       - uvicorn
       - argon2-cffi
       - httpx
-      - crispasr==0.8.31
+      - crispasr==0.8.31+cuda
       - numpy
