@@ -67,6 +67,7 @@ export default {
   asrStageTranscribe: '转写中…',
   asrStageSentence: 'LLM 切句…',
   asrDone: '转写完成',
+  asrFailed: '转写失败',
   asrCancelled: '已取消，可从断点继续',
   asrServiceTitle: '转录服务',
   sentenceServiceTitle: '切句 LLM 服务',

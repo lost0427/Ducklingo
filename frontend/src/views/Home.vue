@@ -45,6 +45,7 @@ const asrStageText = computed(() => {
   const status = job.value
   if (!status || status.status === 'idle') return t.value.asrIdle
   if (status.status === 'done') return t.value.asrDone
+  if (status.status === 'error') return t.value.asrFailed
   if (status.status === 'cancelled') return t.value.asrCancelled
   if (status.status === 'queued') return t.value.asrStageQueue
   const stages: Record<string, string> = {

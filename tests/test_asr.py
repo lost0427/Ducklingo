@@ -1,10 +1,16 @@
+import sys
+import threading
+import time
 import unittest
+from pathlib import Path
 
 from backend.asr import (
+    _run_local_worker,
     build_srt,
     endpoint,
     format_ts,
     headers,
+    kill_local,
     needs_chunking,
     offset_words,
     parse_silences,
@@ -129,6 +135,35 @@ class PlanChunksTest(unittest.TestCase):
 
     def test_whole_file_when_short(self):
         self.assertEqual(plan_chunks(500.0, [250.0], target=600.0), [(0.0, 500.0)])
+
+
+class LocalWorkerTest(unittest.TestCase):
+    def test_success(self):
+        _run_local_worker([sys.executable, "-c", "print('ok')"], Path("."), None, 30, "t1")
+
+    def test_timeout_kills_process(self):
+        with self.assertRaises(RuntimeError):
+            _run_local_worker([sys.executable, "-c", "import time; time.sleep(10)"], Path("."), None, 1, "t2")
+
+    def test_nonzero_exit_reports(self):
+        with self.assertRaises(RuntimeError):
+            _run_local_worker([sys.executable, "-c", "import sys; sys.exit(3)"], Path("."), None, 30, "t3")
+
+    def test_kill_local_terminates(self):
+        done = threading.Event()
+
+        def run():
+            try:
+                _run_local_worker([sys.executable, "-c", "import time; time.sleep(30)"], Path("."), None, 60, "t4")
+            except RuntimeError:
+                pass
+            done.set()
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        time.sleep(1)
+        kill_local("t4")
+        self.assertTrue(done.wait(10))
 
 
 if __name__ == "__main__":

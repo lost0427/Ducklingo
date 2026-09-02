@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Cookie, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from .asr import build_srt, transcribe_cloud, transcribe_local, validate_timeline
+from .asr import build_srt, kill_local, transcribe_cloud, transcribe_local, validate_timeline
 from .auth.api import guards
 from .config import load_config, project_path
 from .media_store import FILE_ID_PATTERN, sanitize_filename
@@ -216,6 +216,7 @@ def router(
         check_csrf(request, ducklingo_session, request.headers.get("x-csrf-token"), request.headers.get("origin"))
         own_file(user["id"], file_id)
         runner.cancel(file_id, "asr")
+        kill_local(file_id)
         directory = media_dir(user["id"])
         for pattern in ARTIFACT_PATTERNS:
             for path in directory.glob(pattern.format(fid=file_id)):

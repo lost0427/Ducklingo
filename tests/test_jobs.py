@@ -127,6 +127,24 @@ class JobRunnerTest(unittest.TestCase):
 
         asyncio.run(main())
 
+    def test_error_without_message_uses_type_name(self):
+        async def main():
+            with tempfile.TemporaryDirectory() as directory:
+                store = store_in(directory)
+                runner = JobRunner(store)
+
+                class Boom(Exception):
+                    pass
+
+                async def work(report):
+                    raise Boom()
+
+                await runner.enqueue("a" * 32, "asr", 1, "cloud", work)
+                row = fetched(store, "a" * 32)
+                self.assertEqual((row["status"], row["error"]), ("error", "Boom"))
+
+        asyncio.run(main())
+
     def test_cloud_and_local_queue_independently(self):
         async def main():
             with tempfile.TemporaryDirectory() as directory:

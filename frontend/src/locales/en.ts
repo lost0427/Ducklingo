@@ -67,6 +67,7 @@ export default {
   asrStageTranscribe: 'Transcribing…',
   asrStageSentence: 'Splitting sentences…',
   asrDone: 'Transcription finished',
+  asrFailed: 'Transcription failed',
   asrCancelled: 'Cancelled — resume from the checkpoint anytime',
   asrServiceTitle: 'Transcription service',
   sentenceServiceTitle: 'Sentence LLM service',

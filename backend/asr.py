@@ -208,6 +208,37 @@ def checkpoint_words(state: dict) -> list[dict]:
     return [word for chunk in state.get("chunks", []) for word in chunk["words"]]
 
 
+_LOCAL_WORKERS: dict[str, subprocess.Popen] = {}
+
+
+def kill_local(file_id: str) -> None:
+    process = _LOCAL_WORKERS.get(file_id)
+    if process and process.poll() is None:
+        process.terminate()
+
+
+def _run_local_worker(command: list[str], cwd: Path, env: dict | None, timeout: float, file_id: str) -> None:
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(cwd),
+        env=env,
+    )
+    _LOCAL_WORKERS[file_id] = process
+    try:
+        _, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise RuntimeError("local transcription timed out") from None
+    finally:
+        _LOCAL_WORKERS.pop(file_id, None)
+    if process.returncode:
+        raise RuntimeError(f"local transcription failed: {stderr.strip()[-500:]}")
+
+
 async def transcribe_local(
     report,
     source: Path,
@@ -240,21 +271,9 @@ async def transcribe_local(
     if settings.get("language"):
         command += ["--language", settings["language"]]
     report("transcribe")
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(root),
-        env={**os.environ, "PYTHONPATH": str(root)},
+    await asyncio.to_thread(
+        _run_local_worker, command, root, {**os.environ, "PYTHONPATH": str(root)}, timeout, file_id
     )
-    try:
-        _, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        process.kill()
-        raise RuntimeError("local transcription timed out") from None
-    if process.returncode:
-        detail = stderr.decode(errors="replace").strip()[-500:]
-        raise RuntimeError(f"local transcription failed: {detail}")
     words = json.loads(output.read_text("utf-8"))["words"]
     if not words:
         raise RuntimeError("local transcription produced no word timestamps")

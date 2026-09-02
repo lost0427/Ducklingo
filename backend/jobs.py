@@ -128,7 +128,7 @@ class JobRunner:
         except asyncio.CancelledError:
             self.store.update(file_id, kind, status="cancelled")
         except Exception as exc:
-            self.store.update(file_id, kind, status="error", error=str(exc)[:ERROR_LIMIT])
+            self.store.update(file_id, kind, status="error", error=(str(exc) or type(exc).__name__)[:ERROR_LIMIT])
         else:
             self.store.update(file_id, kind, status="done", stage="")
         finally:
