@@ -20,12 +20,13 @@ const saved = ref('')
 const models = ref<AsrModel[]>([])
 let modelsTimer: number | undefined
 
+const EDITABLE_FIELDS = ['kind', 'base_url', 'model', 'api_flavor', 'auth_style', 'aligner']
+
 function fillForms() {
   for (const service of ['asr', 'sentence'] as AsrService[]) {
     const view = settings.value?.[service]
     const source = editShared.value && user.value?.role === 'admin' ? view?.shared : (view?.own ?? view?.shared)
-    forms[service] = { ...(source ?? {}) }
-    forms[service].api_key = ''
+    forms[service] = Object.fromEntries(EDITABLE_FIELDS.map((field) => [field, source?.[field] ?? '']))
   }
 }
 
