@@ -5,6 +5,7 @@ from .config import load_config
 from .tools import download_file
 
 MODEL_SUFFIXES = {".gguf", ".bin"}
+MODEL_KINDS = ("asr", "vad", "aligner")
 _single = threading.Lock()
 _status: dict[str, dict] = {}
 
@@ -18,50 +19,54 @@ def load_registry(root: Path) -> list[dict]:
     return list(load_config(registry_path(root)).get("models", []))
 
 
-def models_dir(root: Path) -> Path:
-    return Path(root) / "data" / "models" / "asr"
+def models_dir(root: Path, kind: str = "asr") -> Path:
+    return Path(root) / "data" / "models" / kind
 
 
 def list_models(root: Path) -> list[dict]:
-    directory = models_dir(root)
-    directory.mkdir(parents=True, exist_ok=True)
     items: dict[str, dict] = {}
+    toml_filenames = set()
     for entry in load_registry(root):
+        kind = entry.get("kind", "asr")
+        toml_filenames.add(entry["filename"])
         items[entry["id"]] = {
             "id": entry["id"],
-            "kind": entry.get("kind", "asr"),
+            "kind": kind,
             "name": entry.get("name", entry["id"]),
             "filename": entry["filename"],
-            "installed": (directory / entry["filename"]).exists(),
+            "installed": (models_dir(root, kind) / entry["filename"]).exists(),
             "manual": False,
         }
-    for path in sorted(directory.iterdir()):
-        if (
-            path.is_file()
-            and path.suffix.lower() in MODEL_SUFFIXES
-            and not path.name.endswith(".part")
-            and path.stem not in items
-        ):
-            items[path.stem] = {
-                "id": path.stem,
-                "kind": "asr",
-                "name": path.name,
-                "filename": path.name,
-                "installed": True,
-                "manual": True,
-            }
+    for kind in MODEL_KINDS:
+        directory = models_dir(root, kind)
+        directory.mkdir(parents=True, exist_ok=True)
+        for path in sorted(directory.iterdir()):
+            if (
+                path.is_file()
+                and path.suffix.lower() in MODEL_SUFFIXES
+                and not path.name.endswith(".part")
+                and path.stem not in items
+                and path.name not in toml_filenames
+            ):
+                items[path.stem] = {
+                    "id": path.stem,
+                    "kind": kind,
+                    "name": path.name,
+                    "filename": path.name,
+                    "installed": True,
+                    "manual": True,
+                }
     return list(items.values())
 
 
-def resolve_model(root: Path, model_id: str) -> Path:
-    directory = models_dir(root)
+def resolve_model(root: Path, model_id: str, kind: str = "asr") -> Path:
     for entry in load_registry(root):
         if entry["id"] == model_id:
-            path = directory / entry["filename"]
+            path = models_dir(root, entry.get("kind", kind)) / entry["filename"]
             if not path.exists():
                 raise RuntimeError(f"model not downloaded: {model_id}")
             return path
-    directory = models_dir(root)
+    directory = models_dir(root, kind)
     if (directory / model_id).exists():
         return directory / model_id
     for suffix in sorted(MODEL_SUFFIXES):
@@ -72,7 +77,7 @@ def resolve_model(root: Path, model_id: str) -> Path:
 
 
 def resolve_vad(root: Path) -> Path:
-    directory = models_dir(root)
+    directory = models_dir(root, "vad")
     for entry in load_registry(root):
         if entry.get("kind") == "vad":
             path = directory / entry["filename"]
@@ -94,7 +99,7 @@ def download_model(root: Path, model_id: str) -> None:
     if not _single.acquire(blocking=False):
         raise RuntimeError("another model download is running")
     try:
-        target = models_dir(root) / entry["filename"]
+        target = models_dir(root, entry.get("kind", "asr")) / entry["filename"]
         target.parent.mkdir(parents=True, exist_ok=True)
         _status[model_id] = {"status": "downloading", "received": 0, "total": 0}
 

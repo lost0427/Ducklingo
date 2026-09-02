@@ -40,10 +40,11 @@ def root_with(directory: str, files: dict[str, bytes] | None = None) -> Path:
     root = Path(directory)
     (root / "config").mkdir()
     (root / "config" / "asr_models.toml").write_text(REGISTRY, encoding="utf-8")
-    models = root / "data" / "models" / "asr"
-    models.mkdir(parents=True, exist_ok=True)
-    for name, content in (files or {}).items():
-        (models / name).write_bytes(content)
+    for key, content in (files or {}).items():
+        kind, _, filename = key.partition("/")
+        target = root / "data" / "models" / (kind or "asr")
+        target.mkdir(parents=True, exist_ok=True)
+        (target / (filename or kind)).write_bytes(content)
     return root
 
 
@@ -57,7 +58,7 @@ class RegistryTest(unittest.TestCase):
 class ListModelsTest(unittest.TestCase):
     def test_merges_manual_files(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = root_with(directory, {"ggml-base.en.bin": b"m", "custom.gguf": b"c"})
+            root = root_with(directory, {"asr/ggml-base.en.bin": b"m", "asr/custom.gguf": b"c"})
             models = {m["id"]: m for m in list_models(root)}
             self.assertTrue(models["ggml-base-en"]["installed"])
             self.assertFalse(models["ggml-base-en"]["manual"])
@@ -65,11 +66,26 @@ class ListModelsTest(unittest.TestCase):
             self.assertTrue(models["custom"]["manual"])
             self.assertFalse(models["silero-vad"]["installed"])
 
+    def test_manual_files_inherit_folder_kind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = root_with(directory, {"vad/my-vad.bin": b"v"})
+            models = {m["id"]: m for m in list_models(root)}
+            self.assertEqual(models["my-vad"]["kind"], "vad")
+            self.assertTrue(models["my-vad"]["manual"])
+
+    def test_toml_files_not_listed_twice_as_manual(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = root_with(directory, {"vad/silero-v6.2.0.bin": b"v"})
+            models = {m["id"]: m for m in list_models(root)}
+            self.assertNotIn("silero-v6.2.0", models)
+            self.assertEqual(models["silero-vad"]["kind"], "vad")
+            self.assertTrue(models["silero-vad"]["installed"])
+
 
 class ResolveTest(unittest.TestCase):
     def test_registry_model(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = root_with(directory, {"ggml-base.en.bin": b"m"})
+            root = root_with(directory, {"asr/ggml-base.en.bin": b"m"})
             self.assertTrue(resolve_model(root, "ggml-base-en").exists())
 
     def test_registry_model_missing_raises(self):
@@ -79,7 +95,7 @@ class ResolveTest(unittest.TestCase):
 
     def test_manual_file_by_name(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = root_with(directory, {"custom.gguf": b"c"})
+            root = root_with(directory, {"asr/custom.gguf": b"c"})
             self.assertTrue(resolve_model(root, "custom").exists())
             with self.assertRaises(RuntimeError):
                 resolve_model(root, "absent")
@@ -89,7 +105,8 @@ class ResolveTest(unittest.TestCase):
             root = root_with(directory)
             with self.assertRaises(RuntimeError):
                 resolve_vad(root)
-            (root / "data" / "models" / "asr" / "silero-v6.2.0.bin").write_bytes(b"v")
+            (root / "data" / "models" / "vad").mkdir(parents=True, exist_ok=True)
+            (root / "data" / "models" / "vad" / "silero-v6.2.0.bin").write_bytes(b"v")
             self.assertTrue(resolve_vad(root).name.startswith("silero"))
 
 

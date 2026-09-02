@@ -225,7 +225,11 @@ async def transcribe_local(
     )
     model = await asyncio.to_thread(resolve_model, root, settings["model"])
     vad = await asyncio.to_thread(resolve_vad, root)
-    aligner = await asyncio.to_thread(resolve_model, root, settings["aligner"]) if settings.get("aligner") else None
+    aligner = (
+        await asyncio.to_thread(resolve_model, root, settings["aligner"], "aligner")
+        if settings.get("aligner")
+        else None
+    )
     output = workdir / f"{file_id}.asr.words.json"
     command = [
         sys.executable, "-m", "backend.asr_worker",
