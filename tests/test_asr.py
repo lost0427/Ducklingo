@@ -181,7 +181,22 @@ class LocalWorkerTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 10)
 
 
-class LocalCancellationTest(unittest.IsolatedAsyncioTestCase):
+class LocalTranscriptionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_complete_checkpoint_skips_transcription(self):
+        words = [{"text": "done", "start": 0.0, "end": 1.0}]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "cached.asr.json").write_text(
+                '{"kind":"local","words":[{"text":"done","start":0.0,"end":1.0}]}', "utf-8"
+            )
+            with patch("backend.asr.extract_audio") as extract:
+                result = await transcribe_local(
+                    lambda stage: None, root / "input.mp4", root, "cached",
+                    {"model": "model"}, {}, root / "ffmpeg.exe", root,
+                )
+            extract.assert_not_called()
+            self.assertEqual(result, words)
+
     async def test_cancellation_reaches_worker_thread(self):
         started = threading.Event()
         stopped = threading.Event()

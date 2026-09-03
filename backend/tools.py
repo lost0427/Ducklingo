@@ -86,12 +86,12 @@ def _ffmpeg_asset(tag: str, variant: str) -> tuple[str, str]:
 
 
 def ensure_ffmpeg(root: Path, tag: str, variant: str = "gpl") -> Path:
-    name, url = _ffmpeg_asset(tag, variant)
     install = root / "ffmpeg" / tag
     binary = next(install.rglob("ffmpeg.exe"), None) if install.exists() else None
     binary = binary or (next(install.rglob("ffmpeg"), None) if install.exists() else None)
     if binary:
         return binary
+    name, url = _ffmpeg_asset(tag, variant)
     archive = root / "ffmpeg" / name
     archive.parent.mkdir(parents=True, exist_ok=True)
     if not archive.exists():

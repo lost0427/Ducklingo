@@ -255,6 +255,10 @@ async def transcribe_local(
     ffmpeg: Path,
     root: Path,
 ) -> list[dict]:
+    checkpoint = workdir / f"{file_id}.asr.json"
+    state = load_checkpoint(checkpoint)
+    if state and state.get("kind") == "local" and (words := checkpoint_words(state)):
+        return words
     timeout = float(asr.get("local_timeout_seconds", 3600))
     report("extract")
     pcm = await asyncio.to_thread(
@@ -289,7 +293,7 @@ async def transcribe_local(
     words = json.loads(output.read_text("utf-8"))["words"]
     if not words:
         raise RuntimeError("local transcription produced no word timestamps")
-    save_checkpoint(workdir / f"{file_id}.asr.json", {"kind": "local", "words": words})
+    save_checkpoint(checkpoint, {"kind": "local", "words": words})
     return words
 
 
