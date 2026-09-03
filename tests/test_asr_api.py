@@ -171,11 +171,13 @@ class AsrApiTest(unittest.TestCase):
             ]
 
         async def fake_split(report, words, sentence_settings, sentence_section, checkpoint, timeout=300.0):
-            return [{"text": "hello world", "start": 0.0, "end": 1.0}]
+            return [{"text": "hello world", "start": 0.0, "end": 10.0}]
 
         with patch("backend.asr_api.transcribe_cloud", fake_cloud), patch(
             "backend.asr_api.split_sentences", fake_split
-        ), patch("backend.asr_api.resolve_ffmpeg", return_value=Path("ffmpeg")):
+        ), patch("backend.asr_api.resolve_ffmpeg", return_value=Path("ffmpeg")), patch(
+            "backend.asr_api.probe_duration", return_value=5.0
+        ):
             with TestClient(create_app(root / "app.db", AuthConfig(cookie_secure=False), root)) as client:
                 client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD})
                 response = client.post("/api/asr/start", json={"file_id": file_id}, headers=self.csrf(client))
@@ -191,10 +193,54 @@ class AsrApiTest(unittest.TestCase):
                 srt = client.get(f"/api/asr/srt/{file_id}")
                 self.assertEqual(srt.status_code, 200)
                 self.assertIn("hello world", srt.text)
+                self.assertIn("00:00:05,000", srt.text)
                 self.assertEqual(
                     client.post(f"/api/asr/cancel/{file_id}", headers=self.csrf(client)).status_code,
                     200,
                 )
+
+    def test_start_uses_source_extension_not_asr_mp3(self):
+        file_id = "a" + "0" * 30 + "1"
+        root, media, alice, _, _ = self.build({
+            f"1/{file_id}.mp3": b"source",
+            f"1/{file_id}.asr.mp3": b"extracted",
+        })
+        media.register(file_id, 1, "movie.mp3", "upload", 6, "audio/mpeg")
+        alice.put(
+            "/api/asr/settings",
+            json={"service": "asr", "values": {"kind": "cloud", "base_url": "https://x/v1", "api_key": "k", "model": "m"}},
+            headers=self.csrf(alice),
+        )
+        alice.put(
+            "/api/asr/settings",
+            json={"service": "sentence", "values": {"base_url": "https://llm/v1", "api_key": "k", "model": "m"}},
+            headers=self.csrf(alice),
+        )
+        seen = {}
+
+        async def fake_cloud(report, source, workdir, fid, asr_settings, asr_section, ffmpeg):
+            seen["source"] = source
+            return [{"text": "hello", "start": 0.0, "end": 0.5}]
+
+        async def fake_split(report, words, sentence_settings, sentence_section, checkpoint, timeout=300.0):
+            return [{"text": "hello", "start": 0.0, "end": 1.0}]
+
+        with patch("backend.asr_api.transcribe_cloud", fake_cloud), patch(
+            "backend.asr_api.split_sentences", fake_split
+        ), patch("backend.asr_api.resolve_ffmpeg", return_value=Path("ffmpeg")), patch(
+            "backend.asr_api.probe_duration", return_value=0.5
+        ):
+            self.assertEqual(
+                alice.post("/api/asr/start", json={"file_id": file_id}, headers=self.csrf(alice)).status_code,
+                200,
+            )
+            for _ in range(100):
+                status = alice.get(f"/api/asr/status/{file_id}").json()
+                if status["status"] in ("done", "error"):
+                    break
+                time.sleep(0.05)
+        self.assertEqual(status["status"], "done", status)
+        self.assertEqual(seen["source"], root / "data" / "uploads" / "1" / f"{file_id}.mp3")
 
 
 if __name__ == "__main__":

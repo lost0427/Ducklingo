@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Cookie, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from .asr import build_srt, kill_local, transcribe_cloud, transcribe_local, validate_timeline
+from .asr import build_srt, kill_local, probe_duration, transcribe_cloud, transcribe_local, validate_timeline
 from .auth.api import guards
 from .config import load_config, project_path
 from .media_store import FILE_ID_PATTERN, sanitize_filename
@@ -66,10 +66,10 @@ def router(
 
     def source_path(user_id: int, row) -> Path:
         extension = Path(row["filename"]).suffix.lower()
-        matches = [p for p in media_dir(user_id).glob(f"{row['id']}.*") if p.suffix.lower() == extension]
-        if not matches:
+        path = media_dir(user_id) / f"{row['id']}{extension}"
+        if not path.is_file():
             raise HTTPException(404, "File not found")
-        return matches[0]
+        return path
 
     @api.get("/settings")
     def get_settings(ducklingo_session: str | None = Cookie(default=None)):
@@ -181,7 +181,8 @@ def router(
                 directory / f"{file_id}.sentences.json",
                 float(asr_section.get("timeout_seconds", 300)),
             )
-            sentences = validate_timeline(sentences)
+            duration = await asyncio.to_thread(probe_duration, source, ffmpeg)
+            sentences = validate_timeline(sentences, duration)
             (directory / f"{file_id}.srt").write_text(build_srt(sentences), "utf-8")
 
         runner.enqueue(file_id, "asr", user["id"], asr_settings["kind"], work)
