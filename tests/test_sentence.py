@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
-from backend.sentence import apply_breaks, batch_words, call_llm, join_text, split_sentences, system_prompt
+from backend.sentence import apply_breaks, batch_words, call_llm, join_text, split_sentences, system_prompt, validate_lengths
 
 WORDS = [
     {"text": "the", "start": 0.0, "end": 0.1},
@@ -66,6 +66,24 @@ class ApplyBreaksTest(unittest.TestCase):
     def test_duplicate_break_tolerated(self):
         sentences = apply_breaks(WORDS[:4], "the quick<br><br>brown fox")
         self.assertEqual(len(sentences), 2)
+
+
+class ValidateLengthsTest(unittest.TestCase):
+    def test_latin_limit_ignores_spaces(self):
+        sentence = {"text": "a " * 42, "start": 0.0, "end": 1.0}
+        self.assertEqual(validate_lengths([sentence], {"max_chars_latin": 42}), [sentence])
+
+    def test_latin_over_limit_raises(self):
+        with self.assertRaisesRegex(ValueError, r"sentence too long: 43>42"):
+            validate_lengths([{"text": "a" * 43}], {"max_chars_latin": 42})
+
+    def test_cjk_limit(self):
+        self.assertEqual(
+            validate_lengths([{"text": "你" * 21}], {"max_chars_cjk": 21}),
+            [{"text": "你" * 21}],
+        )
+        with self.assertRaisesRegex(ValueError, r"sentence too long: 22>21"):
+            validate_lengths([{"text": "你" * 22}], {"max_chars_cjk": 21})
 
 
 class CallLlmTest(unittest.TestCase):
@@ -202,6 +220,29 @@ class SplitSentencesTest(unittest.TestCase):
                         await split_sentences(lambda s: None, WORDS, {}, config, checkpoint)
                 self.assertEqual(len(attempts), 2)
                 self.assertIn("word sequence mismatch", str(ctx.exception))
+
+        asyncio.run(main())
+
+    def test_length_mismatch_retries_then_errors(self):
+        async def main():
+            with tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "s.json"
+                attempts = []
+
+                async def fake_call(client, text, prompt, settings, config):
+                    attempts.append(1)
+                    return "a" * 43
+
+                with patch("backend.sentence.call_llm", fake_call):
+                    with self.assertRaisesRegex(RuntimeError, r"sentence too long: 43>42"):
+                        await split_sentences(
+                            lambda s: None,
+                            [{"text": "a" * 43, "start": 0.0, "end": 1.0}],
+                            {},
+                            {"max_chars_latin": 42},
+                            checkpoint,
+                        )
+                self.assertEqual(len(attempts), 2)
 
         asyncio.run(main())
 

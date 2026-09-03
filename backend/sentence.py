@@ -11,6 +11,7 @@ from .asr import headers, load_checkpoint, save_checkpoint
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "sentence_split.md"
 
 CJK_RUN = re.compile(r"(?<=[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]) (?=[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])")
+CJK_CHAR = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
 
 
 @lru_cache(maxsize=1)
@@ -54,6 +55,17 @@ def apply_breaks(words: list[dict], marked: str) -> list[dict]:
         {"text": join_text(group), "start": group[0]["start"], "end": group[-1]["end"]}
         for group in sentences
     ]
+
+
+def validate_lengths(sentences: list[dict], config: dict) -> list[dict]:
+    latin = int(config.get("max_chars_latin", 42))
+    cjk = int(config.get("max_chars_cjk", 21))
+    for sentence in sentences:
+        length = len(re.sub(r"\s+", "", sentence["text"]))
+        limit = cjk if CJK_CHAR.search(sentence["text"]) else latin
+        if length > limit:
+            raise ValueError(f"sentence too long: {length}>{limit}")
+    return sentences
 
 
 def endpoint(settings: dict) -> str:
@@ -128,7 +140,7 @@ async def split_sentences(
             for attempt in range(2):
                 try:
                     marked = await call_llm(client, text, prompt, settings, config)
-                    entry["sentences"] = apply_breaks(group, marked)
+                    entry["sentences"] = validate_lengths(apply_breaks(group, marked), config)
                     last_error = ""
                     break
                 except ValueError as exc:
