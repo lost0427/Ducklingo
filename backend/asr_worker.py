@@ -52,7 +52,7 @@ def main() -> None:
     words = words_from_segments(segments)
     if not words and args.aligner:
         text = " ".join(str(segment.text) for segment in segments)
-        words = aligned_words(align_words(pcm, text, args.aligner))
+        words = aligned_words(align_words(args.aligner, text, pcm))
     Path(args.output).write_text(json.dumps({"words": words}), "utf-8")
     if not words:
         raise SystemExit("no word timestamps produced")

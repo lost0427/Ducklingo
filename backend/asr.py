@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import httpx
@@ -217,7 +218,10 @@ def kill_local(file_id: str) -> None:
         process.terminate()
 
 
-def _run_local_worker(command: list[str], cwd: Path, env: dict | None, timeout: float, file_id: str) -> None:
+def _run_local_worker(
+    command: list[str], cwd: Path, env: dict | None, timeout: float, file_id: str,
+    cancelled: threading.Event | None = None,
+) -> None:
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -227,6 +231,8 @@ def _run_local_worker(command: list[str], cwd: Path, env: dict | None, timeout: 
         env=env,
     )
     _LOCAL_WORKERS[file_id] = process
+    if cancelled and cancelled.is_set():
+        process.terminate()
     try:
         _, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -271,9 +277,15 @@ async def transcribe_local(
     if settings.get("language"):
         command += ["--language", settings["language"]]
     report("transcribe")
-    await asyncio.to_thread(
-        _run_local_worker, command, root, {**os.environ, "PYTHONPATH": str(root)}, timeout, file_id
-    )
+    cancelled = threading.Event()
+    try:
+        await asyncio.to_thread(
+            _run_local_worker, command, root, {**os.environ, "PYTHONPATH": str(root)}, timeout, file_id, cancelled
+        )
+    except asyncio.CancelledError:
+        cancelled.set()
+        kill_local(file_id)
+        raise
     words = json.loads(output.read_text("utf-8"))["words"]
     if not words:
         raise RuntimeError("local transcription produced no word timestamps")

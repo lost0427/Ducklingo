@@ -1,8 +1,11 @@
+import asyncio
 import sys
+import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.asr import (
     _run_local_worker,
@@ -16,6 +19,7 @@ from backend.asr import (
     parse_silences,
     parse_words,
     plan_chunks,
+    transcribe_local,
     validate_timeline,
 )
 
@@ -164,6 +168,47 @@ class LocalWorkerTest(unittest.TestCase):
         time.sleep(1)
         kill_local("t4")
         self.assertTrue(done.wait(10))
+
+    def test_pre_cancelled_worker_terminates(self):
+        cancelled = threading.Event()
+        cancelled.set()
+        started = time.monotonic()
+        with self.assertRaises(RuntimeError):
+            _run_local_worker(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                Path("."), None, 60, "t5", cancelled,
+            )
+        self.assertLess(time.monotonic() - started, 10)
+
+
+class LocalCancellationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_cancellation_reaches_worker_thread(self):
+        started = threading.Event()
+        stopped = threading.Event()
+
+        def worker(command, cwd, env, timeout, file_id, cancelled):
+            started.set()
+            cancelled.wait(5)
+            stopped.set()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pcm = root / "audio.pcm"
+            with (
+                patch("backend.asr.extract_audio", return_value=pcm),
+                patch("backend.asr.resolve_model", return_value=root / "model.bin"),
+                patch("backend.asr.resolve_vad", return_value=root / "vad.bin"),
+                patch("backend.asr._run_local_worker", side_effect=worker),
+            ):
+                task = asyncio.create_task(
+                    transcribe_local(lambda stage: None, root / "input.mp4", root, "t6",
+                                     {"model": "model"}, {}, root / "ffmpeg.exe", root)
+                )
+                self.assertTrue(await asyncio.to_thread(started.wait, 5))
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                self.assertTrue(await asyncio.to_thread(stopped.wait, 5))
 
 
 if __name__ == "__main__":
