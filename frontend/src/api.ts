@@ -127,7 +127,7 @@ export function downloadVideo(url: string, quality: VideoQuality) {
   })
 }
 
-export type AsrService = 'asr' | 'sentence'
+export type AsrService = 'asr' | 'sentence' | 'translate'
 export type SettingsView = { own: Record<string, string> | null; shared: Record<string, string> | null; has_shared: boolean }
 export type AsrModel = {
   id: string
@@ -138,7 +138,20 @@ export type AsrModel = {
   manual: boolean
   download?: { status: string; received: number; total: number; error?: string } | null
 }
-export type JobStatus = { status: string; stage: string; error: string; has_srt: boolean }
+export type JobStatus = {
+  status: string
+  stage: string
+  error: string
+  has_srt: boolean
+  completed_batches: number
+  total_batches: number
+  target_language: string
+  mode: 'standard' | 'reflect'
+  reasoning_effort: 'off' | 'low' | 'medium' | 'high'
+  context_window_tokens: number
+  max_context_ratio: number
+  has_archive: boolean
+}
 
 export function getAsrSettings() {
   return request<Record<AsrService, SettingsView>>('/api/asr/settings')
@@ -156,8 +169,19 @@ export function downloadAsrModel(id: string) {
   return request<{ ok: boolean }>('/api/asr/models/download', { method: 'POST', body: JSON.stringify({ id }) })
 }
 
-export function startAsr(fileId: string, language?: string) {
-  return request<{ ok: boolean }>('/api/asr/start', { method: 'POST', body: JSON.stringify({ file_id: fileId, language }) })
+export type TranslationOptions = {
+  target_language?: string
+  reflect?: boolean
+  reasoning_effort?: 'off' | 'low' | 'medium' | 'high'
+  context_window_tokens?: number
+  max_context_ratio?: number
+}
+
+export function startAsr(fileId: string, language?: string, options: TranslationOptions = {}) {
+  return request<{ ok: boolean }>('/api/asr/start', {
+    method: 'POST',
+    body: JSON.stringify({ file_id: fileId, language, ...options }),
+  })
 }
 
 export function asrStatus(fileId: string) {
@@ -168,12 +192,19 @@ export function cancelAsr(fileId: string) {
   return request<{ ok: boolean }>('/api/asr/cancel/' + fileId, { method: 'POST' })
 }
 
-export function resetAsr(fileId: string) {
-  return request<{ ok: boolean }>('/api/asr/reset/' + fileId, { method: 'POST' })
+export function resetAsr(fileId: string, scope: 'all' | 'translation' = 'all') {
+  return request<{ ok: boolean }>('/api/asr/reset/' + fileId, {
+    method: 'POST',
+    ...(scope === 'translation' ? { body: JSON.stringify({ scope }) } : {}),
+  })
 }
 
 export function asrSrtUrl(fileId: string) {
   return '/api/asr/srt/' + fileId
+}
+
+export function asrArchiveUrl(fileId: string) {
+  return '/api/asr/archive/' + fileId
 }
 
 async function responseError(response: Response) {

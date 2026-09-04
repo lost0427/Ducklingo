@@ -15,7 +15,7 @@ const newRole = ref<'user' | 'admin'>('user')
 
 const settings = ref<Record<AsrService, { own: Record<string, string> | null; shared: Record<string, string> | null; has_shared: boolean }> | null>(null)
 const editShared = ref(false)
-const forms = reactive<Record<AsrService, Record<string, string>>>({ asr: {}, sentence: {} })
+const forms = reactive<Record<AsrService, Record<string, string>>>({ asr: {}, sentence: {}, translate: {} })
 const saved = ref('')
 const models = ref<AsrModel[]>([])
 let modelsTimer: number | undefined
@@ -23,7 +23,7 @@ let modelsTimer: number | undefined
 const EDITABLE_FIELDS = ['kind', 'base_url', 'model', 'api_flavor', 'auth_style', 'aligner']
 
 function fillForms() {
-  for (const service of ['asr', 'sentence'] as AsrService[]) {
+  for (const service of ['asr', 'sentence', 'translate'] as AsrService[]) {
     const view = settings.value?.[service]
     const source = editShared.value && user.value?.role === 'admin' ? view?.shared : (view?.own ?? view?.shared)
     forms[service] = Object.fromEntries(EDITABLE_FIELDS.map((field) => [field, source?.[field] ?? '']))
@@ -153,7 +153,7 @@ onMounted(() => {
 
     <section class="flex flex-col gap-3">
       <div class="flex flex-wrap items-center gap-3">
-        <h2 class="text-lg">{{ t.asrServiceTitle }} · {{ t.sentenceServiceTitle }}</h2>
+        <h2 class="text-lg">{{ t.asrServiceTitle }} · {{ t.sentenceServiceTitle }} · {{ t.translateServiceTitle }}</h2>
         <label v-if="user?.role === 'admin'" class="label cursor-pointer gap-2">
           <input class="toggle" type="checkbox" v-model="editShared" @change="fillForms" />
           <span class="text-sm">{{ t.sharedConfig }}</span>
@@ -239,6 +239,23 @@ onMounted(() => {
           <fieldset class="fieldset">
             <label class="label p-0 text-sm font-semibold" for="sentence-model">{{ t.model }}</label>
             <input id="sentence-model" v-model="forms.sentence.model" class="input w-full bg-base-200" />
+          </fieldset>
+          <button class="btn btn-primary" type="submit">{{ t.save }}</button>
+        </form>
+
+        <form class="space-y-3 rounded-box border border-base-content/30 p-4" @submit.prevent="save('translate')">
+          <h3 class="font-semibold">{{ t.translateServiceTitle }}</h3>
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="translate-base-url">{{ t.baseUrl }}</label>
+            <input id="translate-base-url" v-model="forms.translate.base_url" class="input w-full bg-base-200" type="url" placeholder="https://api.openai.com/v1" />
+          </fieldset>
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="translate-api-key">{{ t.apiKey }}</label>
+            <input id="translate-api-key" v-model="forms.translate.api_key" class="input w-full bg-base-200" type="password" :placeholder="t.apiKeyHint" />
+          </fieldset>
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="translate-model">{{ t.model }}</label>
+            <input id="translate-model" v-model="forms.translate.model" class="input w-full bg-base-200" />
           </fieldset>
           <button class="btn btn-primary" type="submit">{{ t.save }}</button>
         </form>

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowDownTrayIcon, CloudArrowUpIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import {
   asrStatus,
+  asrArchiveUrl,
   asrSrtUrl,
   cancelAsr,
   deleteUploadedFile,
@@ -37,6 +38,12 @@ let uploadTask: ReturnType<typeof uploadVideo> | null = null
 
 const job = ref<JobStatus | null>(null)
 const asrLanguage = ref('')
+const targetLanguage = ref('简体中文')
+const translationMode = ref<'standard' | 'reflect'>('standard')
+const reasoningEffort = ref<'off' | 'low' | 'medium' | 'high'>('off')
+const contextPreset = ref('131072')
+const customContextWindow = ref('')
+const contextRatio = ref(80)
 const asrBusy = ref(false)
 let asrTimer: number | undefined
 
@@ -52,10 +59,17 @@ const asrStageText = computed(() => {
     extract: t.value.asrStageExtract,
     transcribe: t.value.asrStageTranscribe,
     sentence: t.value.asrStageSentence,
+    translate: t.value.translationStage,
   }
   return stages[status.stage] ?? t.value.asrStageTranscribe
 })
 const asrResumable = computed(() => ['error', 'cancelled'].includes(job.value?.status ?? ''))
+const contextWindow = computed(() => contextPreset.value === 'custom' ? Number(customContextWindow.value) : Number(contextPreset.value))
+const translationProgress = computed(() => {
+  const completed = job.value?.completed_batches ?? 0
+  const total = job.value?.total_batches ?? 0
+  return total ? `${completed}/${total}` : ''
+})
 
 const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
   { value: 'best', label: 'qualityBest' },
@@ -227,20 +241,47 @@ async function refreshAsr() {
     return
   }
   job.value = await asrStatus(currentFile.value.id).catch(() => null)
+  if (job.value?.target_language) {
+    targetLanguage.value = job.value.target_language
+    translationMode.value = job.value.mode
+    reasoningEffort.value = job.value.reasoning_effort
+    const preset = String(job.value.context_window_tokens)
+    contextPreset.value = ['32768', '65536', '131072', '262144', '524288', '1048576'].includes(preset) ? preset : 'custom'
+    customContextWindow.value = contextPreset.value === 'custom' ? preset : ''
+    contextRatio.value = Math.round(job.value.max_context_ratio * 100)
+  }
 }
 
 async function startTranscribe() {
   if (!currentFile.value) return
+  if (!targetLanguage.value.trim()) {
+    error.value = t.value.targetLanguageRequired
+    return
+  }
+  if (!Number.isInteger(contextWindow.value) || contextWindow.value < 1) {
+    error.value = t.value.invalidContextWindow
+    return
+  }
   asrBusy.value = true
   error.value = ''
   try {
-    await startAsr(currentFile.value.id, asrLanguage.value || undefined)
+    await startAsr(currentFile.value.id, asrLanguage.value || undefined, {
+      target_language: targetLanguage.value.trim(),
+      reflect: translationMode.value === 'reflect',
+      reasoning_effort: reasoningEffort.value,
+      context_window_tokens: contextWindow.value,
+      max_context_ratio: contextRatio.value / 100,
+    })
     await refreshAsr()
   } catch (err) {
     error.value = errorMessage(err)
   } finally {
     asrBusy.value = false
   }
+}
+
+function setTranslationMode(event: Event) {
+  translationMode.value = (event.target as HTMLInputElement).checked ? 'reflect' : 'standard'
 }
 
 async function cancelTranscribe() {
@@ -425,9 +466,47 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
           <input id="asr-language" v-model="asrLanguage" class="input w-full bg-base-200" :disabled="asrRunning" />
           <p class="label">{{ t.asrLanguageHint }}</p>
         </fieldset>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="target-language">{{ t.targetLanguage }}</label>
+            <input id="target-language" v-model="targetLanguage" class="input w-full bg-base-200" :disabled="asrRunning" required />
+          </fieldset>
+          <fieldset class="fieldset">
+            <legend class="fieldset-legend">{{ t.translationMode }}</legend>
+            <label class="label cursor-pointer justify-start gap-3">
+              <input class="toggle toggle-primary" type="checkbox" :checked="translationMode === 'reflect'" :disabled="asrRunning" @change="setTranslationMode" />
+              <span>{{ translationMode === 'reflect' ? t.reflectMode : t.standardMode }}</span>
+            </label>
+          </fieldset>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="reasoning-effort">{{ t.reasoningEffort }}</label>
+            <select id="reasoning-effort" v-model="reasoningEffort" class="select w-full bg-base-200" :disabled="asrRunning">
+              <option value="off">{{ t.reasoningOff }}</option>
+              <option value="low">{{ t.reasoningLow }}</option>
+              <option value="medium">{{ t.reasoningMedium }}</option>
+              <option value="high">{{ t.reasoningHigh }}</option>
+            </select>
+          </fieldset>
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="context-window">{{ t.contextWindow }}</label>
+            <select id="context-window" v-model="contextPreset" class="select w-full bg-base-200" :disabled="asrRunning">
+              <option value="32768">32K</option><option value="65536">64K</option><option value="131072">128K</option>
+              <option value="262144">256K</option><option value="524288">512K</option><option value="1048576">1M</option>
+              <option value="custom">{{ t.custom }}</option>
+            </select>
+            <input v-if="contextPreset === 'custom'" v-model="customContextWindow" class="input input-sm mt-1 w-full bg-base-200" type="number" min="1" :placeholder="t.customContextHint" :disabled="asrRunning" required />
+          </fieldset>
+        </div>
+        <fieldset class="fieldset">
+          <label class="label p-0 text-sm font-semibold" for="context-ratio">{{ t.contextRatio }} {{ contextRatio }}%</label>
+          <input id="context-ratio" v-model.number="contextRatio" class="range range-primary" type="range" min="10" max="95" step="1" :disabled="asrRunning" />
+        </fieldset>
         <p class="flex items-center gap-2 text-sm">
           <span v-if="asrRunning" class="loading loading-spinner loading-sm" aria-hidden="true"></span>
           <span :class="job?.status === 'error' && 'text-error'">{{ asrStageText }}</span>
+          <span v-if="translationProgress" class="badge badge-ghost badge-sm">{{ translationProgress }}</span>
         </p>
         <div v-if="job?.error" role="alert" class="alert alert-error">
           <span class="break-all">{{ job.error }}</span>
@@ -455,6 +534,10 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
           <a v-if="job?.has_srt" class="btn btn-outline flex-1 border-base-content/80" :href="asrSrtUrl(currentFile.id)" download>
             <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
             {{ t.downloadSrt }}
+          </a>
+          <a v-if="job?.has_archive" class="btn btn-primary flex-1" :href="asrArchiveUrl(currentFile.id)" download>
+            <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
+            {{ t.downloadArchive }}
           </a>
         </div>
       </template>
