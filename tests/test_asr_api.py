@@ -1,3 +1,4 @@
+import json
 import tempfile
 import time
 import unittest
@@ -113,6 +114,17 @@ class AsrApiTest(unittest.TestCase):
             bob.post("/api/asr/start", json={"file_id": file_id}, headers=self.csrf(bob)).status_code,
             404,
         )
+
+    def test_translation_requires_explicit_provider(self):
+        file_id = "f" + "0" * 30 + "1"
+        root, media, alice, _, _ = self.build({f"1/{file_id}.mp4": b"video"})
+        media.register(file_id, 1, "v.mp4", "upload", 5, "video/mp4")
+        headers = self.csrf(alice)
+        alice.put("/api/asr/settings", json={"service": "asr", "values": {"kind": "cloud", "base_url": "https://x/v1", "api_key": "k", "model": "m"}}, headers=headers)
+        alice.put("/api/asr/settings", json={"service": "sentence", "values": {"base_url": "https://llm/v1", "api_key": "k", "model": "m"}}, headers=headers)
+        response = alice.post("/api/asr/start", json={"file_id": file_id, "target_language": "Chinese"}, headers=headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Translation", response.json()["detail"])
 
     def test_models_list_and_admin_only_download(self):
         _, _, alice, _, admin = self.build()
@@ -241,6 +253,44 @@ class AsrApiTest(unittest.TestCase):
                 time.sleep(0.05)
         self.assertEqual(status["status"], "done", status)
         self.assertEqual(seen["source"], root / "data" / "uploads" / "1" / f"{file_id}.mp3")
+
+    def test_translation_flow_exposes_archive_and_progress(self):
+        file_id = "d" + "0" * 30 + "1"
+        root, media, alice, _, _ = self.build({f"1/{file_id}.mp4": b"video"})
+        media.register(file_id, 1, "movie.mp4", "upload", 5, "video/mp4")
+        settings = {"kind": "cloud", "base_url": "https://x/v1", "api_key": "k", "model": "m"}
+        alice.put("/api/asr/settings", json={"service": "asr", "values": settings}, headers=self.csrf(alice))
+        alice.put("/api/asr/settings", json={"service": "sentence", "values": {"base_url": "https://llm/v1", "api_key": "k", "model": "split"}}, headers=self.csrf(alice))
+        alice.put("/api/asr/settings", json={"service": "translate", "values": {"base_url": "https://llm/v1", "api_key": "k", "model": "trans"}}, headers=self.csrf(alice))
+
+        async def fake_cloud(report, source, workdir, fid, asr_settings, asr_section, ffmpeg):
+            return [{"text": "hello", "start": 0.0, "end": 0.5}]
+
+        async def fake_split(report, words, sentence_settings, sentence_section, checkpoint, timeout=300.0):
+            return [{"text": "hello", "start": 0.0, "end": 0.5}]
+
+        async def fake_translate(report, sentences, translate_settings, translate_section, checkpoint, **kwargs):
+            checkpoint.write_text(json.dumps({"target_language": kwargs["target_language"], "mode": kwargs["mode"], "reasoning_effort": kwargs["reasoning_effort"], "context_window_tokens": 131072, "max_context_ratio": 0.8, "batches": [{"done": True, "translations": {"1": "hello"}}]}), "utf-8")
+            return [{**sentences[0], "id": "1", "translation": "hello"}]
+
+        def fake_archive(directory, sentences):
+            archive = directory / "20260904_143210_subtitles.zip"
+            archive.write_bytes(b"zip")
+            return archive
+
+        with patch("backend.asr_api.transcribe_cloud", fake_cloud), patch("backend.asr_api.split_sentences", fake_split), patch("backend.asr_api.translate_sentences", fake_translate), patch("backend.asr_api.create_archive", fake_archive), patch("backend.asr_api.resolve_ffmpeg", return_value=Path("ffmpeg")), patch("backend.asr_api.probe_duration", return_value=5.0):
+            with TestClient(create_app(root / "app.db", AuthConfig(cookie_secure=False), root)) as client:
+                client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD})
+                self.assertEqual(client.post("/api/asr/start", json={"file_id": file_id, "target_language": "Chinese", "reasoning_effort": "high"}, headers=self.csrf(client)).status_code, 200)
+                for _ in range(100):
+                    status = client.get(f"/api/asr/status/{file_id}").json()
+                    if status["status"] in ("done", "error"):
+                        break
+                    time.sleep(0.05)
+                self.assertEqual(status["status"], "done", status)
+                self.assertEqual((status["completed_batches"], status["total_batches"], status["target_language"], status["reasoning_effort"]), (1, 1, "Chinese", "high"))
+                self.assertTrue(status["has_archive"])
+                self.assertEqual(client.get(f"/api/asr/archive/{file_id}").status_code, 200)
 
 
 if __name__ == "__main__":

@@ -70,6 +70,12 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         media.register(file_id, user_id, filename, kind, size, content_type, source_url)
         for stale_id in stale:
             media.delete(stale_id)
+            try:
+                archive = json.loads((directory / f"{stale_id}.translation.json").read_text("utf-8")).get("archive", "")
+            except (OSError, ValueError):
+                archive = ""
+            if archive:
+                (directory / Path(archive).name).unlink(missing_ok=True)
             for path in directory.glob(f"{stale_id}.*"):
                 path.unlink(missing_ok=True)
 
@@ -245,6 +251,13 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         if not FILE_ID_PATTERN.fullmatch(file_id):
             raise HTTPException(404, "Uploaded file not found")
         directory = media_dir(user["id"])
+        translation_checkpoint = directory / f"{file_id}.translation.json"
+        try:
+            archive = json.loads(translation_checkpoint.read_text("utf-8")).get("archive", "")
+        except (OSError, ValueError):
+            archive = ""
+        if archive:
+            (directory / Path(archive).name).unlink(missing_ok=True)
         for path in directory.glob(f"{file_id}.*"):
             path.unlink(missing_ok=True)
         media.delete(file_id)

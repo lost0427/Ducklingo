@@ -24,6 +24,13 @@ batch_words = 800            # LLM 分批词数
 retries = 2                  # 单批 LLM 调用重试次数
 response_format = ""         # 开关：空=不发送该参数；设置后透传
 
+[translate]
+context_window_tokens = 131072 # 默认 128K 上下文窗口
+max_context_ratio = 0.8         # 实际请求预算比例，范围 0.1..0.95
+tokenizer_encoding = "auto"     # auto 或 tiktoken encoding 名称
+batch_retries = 2               # 单批网络/服务重试次数
+retry_delay_seconds = 0         # 重试退避基数；生产环境可设为 2
+
 [upload]
 max_file_size_gb = 2
 allowed_extensions = ["mp4", "mov", "avi", "mkv", "webm", "m4v", "wav", "mp3", "flac", "m4a"]

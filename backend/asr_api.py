@@ -1,10 +1,11 @@
 import asyncio
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Cookie, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from .asr import build_srt, kill_local, probe_duration, transcribe_cloud, transcribe_local, validate_timeline
+from .asr import build_srt, kill_local, probe_duration, save_checkpoint, transcribe_cloud, transcribe_local, validate_timeline
 from .auth.api import guards
 from .config import load_config, project_path
 from .media_store import FILE_ID_PATTERN, sanitize_filename
@@ -13,8 +14,9 @@ from .sentence import split_sentences
 from .settings_store import FIELDS, GLOBAL, SERVICES, SettingsStore
 from .tools import ensure_ffmpeg
 from .jobs import JobRunner
+from .translation import create_archive, translate_sentences
 
-ARTIFACT_PATTERNS = ("{fid}.asr*", "{fid}.srt", "{fid}.sentences.json", "{fid}.words.json")
+ARTIFACT_PATTERNS = ("{fid}.asr*", "{fid}.srt", "{fid}.sentences.json", "{fid}.translation.json", "{fid}.words.json")
 
 
 def load_section(root: Path, name: str) -> dict:
@@ -159,8 +161,40 @@ def router(
         sentence_settings = settings.resolve(user["id"], "sentence")
         if not sentence_settings:
             raise HTTPException(400, "Sentence LLM not configured")
+        explicit_target = "target_language" in body
+        target_language = str(body.get("target_language") or "").strip()
+        translate_settings = settings.resolve(user["id"], "translate")
+        has_target = explicit_target or translate_settings is not None
+        if explicit_target and not target_language:
+            raise HTTPException(400, "target_language is required")
+        if has_target and not target_language:
+            target_language = "简体中文"
+        if "reflect" in body and not isinstance(body["reflect"], bool):
+            raise HTTPException(400, "reflect must be a boolean")
+        if has_target and (not translate_settings or not all(translate_settings.get(name) for name in ("base_url", "model", "api_key"))):
+            raise HTTPException(400, "Translation service not configured")
+        mode = "reflect" if body.get("reflect") else str(body.get("mode") or "standard")
+        if mode not in ("standard", "reflect"):
+            raise HTTPException(400, "translation mode must be standard or reflect")
+        reasoning_effort = str(body.get("reasoning_effort") or "off")
+        if reasoning_effort not in ("off", "low", "medium", "high"):
+            raise HTTPException(400, "invalid reasoning_effort")
         asr_section = load_section(root, "asr")
         sentence_section = load_section(root, "sentence")
+        translate_section = load_section(root, "translate")
+        if has_target:
+            try:
+                if "context_window_tokens" in body:
+                    translate_section["context_window_tokens"] = int(body["context_window_tokens"])
+                if "max_context_ratio" in body:
+                    translate_section["max_context_ratio"] = float(body["max_context_ratio"])
+                if translate_section.get("context_window_tokens", 131072) < 1:
+                    raise ValueError("context window must be positive")
+                ratio = float(translate_section.get("max_context_ratio", 0.8))
+                if not 0.1 <= ratio <= 0.95:
+                    raise ValueError("context ratio must be between 0.1 and 0.95")
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, str(exc)) from exc
         language = str(body.get("language") or "").strip()
         if asr_settings["kind"] == "local" and language:
             asr_settings = {**asr_settings, "language": language}
@@ -183,7 +217,26 @@ def router(
             )
             duration = await asyncio.to_thread(probe_duration, source, ffmpeg)
             sentences = validate_timeline(sentences, duration)
-            (directory / f"{file_id}.srt").write_text(build_srt(sentences), "utf-8")
+            if has_target:
+                translated = await translate_sentences(
+                    report,
+                    sentences,
+                    translate_settings,
+                    translate_section,
+                    directory / f"{file_id}.translation.json",
+                    target_language=target_language,
+                    mode=mode,
+                    reasoning_effort=reasoning_effort,
+                    cache_dir=Path(root) / "data" / "translation-cache" / str(user["id"]),
+                    timeout=float(translate_section.get("timeout_seconds", asr_section.get("timeout_seconds", 300))),
+                )
+                (directory / f"{file_id}.srt").write_text(build_srt(sentences), "utf-8")
+                archive = await asyncio.to_thread(create_archive, directory, translated)
+                state = json.loads((directory / f"{file_id}.translation.json").read_text("utf-8"))
+                state["archive"] = archive.name
+                save_checkpoint(directory / f"{file_id}.translation.json", state)
+            else:
+                (directory / f"{file_id}.srt").write_text(build_srt(sentences), "utf-8")
 
         runner.enqueue(file_id, "asr", user["id"], asr_settings["kind"], work, username=user["username"])
         return {"ok": True}
@@ -193,11 +246,21 @@ def router(
         user = current(ducklingo_session)
         own_file(user["id"], file_id)
         job = runner.store.get(file_id, "asr")
+        translation = load_translation_checkpoint(media_dir(user["id"]), file_id)
+        batches = translation.get("batches", []) if translation else []
         return {
             "status": job["status"] if job else "idle",
             "stage": job["stage"] if job else "",
             "error": job["error"] if job else "",
             "has_srt": (media_dir(user["id"]) / f"{file_id}.srt").exists(),
+            "completed_batches": sum(1 for batch in batches if batch.get("done")),
+            "total_batches": len(batches),
+            "target_language": translation.get("target_language", "") if translation else "",
+            "mode": translation.get("mode", "standard") if translation else "standard",
+            "reasoning_effort": translation.get("reasoning_effort", "off") if translation else "off",
+            "context_window_tokens": translation.get("context_window_tokens", 131072) if translation else 131072,
+            "max_context_ratio": translation.get("max_context_ratio", 0.8) if translation else 0.8,
+            "has_archive": bool(translation and translation.get("archive") and (media_dir(user["id"]) / Path(translation["archive"]).name).is_file()),
         }
 
     @api.post("/cancel/{file_id}")
@@ -212,13 +275,24 @@ def router(
         return {"ok": True}
 
     @api.post("/reset/{file_id}")
-    def reset(file_id: str, request: Request, ducklingo_session: str | None = Cookie(default=None)):
+    async def reset(file_id: str, request: Request, ducklingo_session: str | None = Cookie(default=None)):
         user = current(ducklingo_session)
         check_csrf(request, ducklingo_session, request.headers.get("x-csrf-token"), request.headers.get("origin"))
         own_file(user["id"], file_id)
         runner.cancel(file_id, "asr")
         kill_local(file_id)
         directory = media_dir(user["id"])
+        translation = load_translation_checkpoint(directory, file_id)
+        if translation and translation.get("archive"):
+            (directory / Path(translation["archive"]).name).unlink(missing_ok=True)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if body.get("scope") == "translation":
+            (directory / f"{file_id}.translation.json").unlink(missing_ok=True)
+            runner.store.delete(file_id, "asr")
+            return {"ok": True}
         for pattern in ARTIFACT_PATTERNS:
             for path in directory.glob(pattern.format(fid=file_id)):
                 path.unlink(missing_ok=True)
@@ -235,4 +309,24 @@ def router(
         name = sanitize_filename(Path(row["filename"]).stem) + ".srt"
         return FileResponse(path, media_type="application/x-subrip", filename=name)
 
+    @api.get("/archive/{file_id}")
+    def get_archive(file_id: str, ducklingo_session: str | None = Cookie(default=None)):
+        user = current(ducklingo_session)
+        row = own_file(user["id"], file_id)
+        directory = media_dir(user["id"])
+        translation = load_translation_checkpoint(directory, file_id)
+        archive_name = Path(translation.get("archive", "")).name if translation else ""
+        path = directory / archive_name if archive_name else None
+        if not path or not path.is_file():
+            raise HTTPException(404, "Subtitle archive not found")
+        return FileResponse(path, media_type="application/zip", filename=path.name)
+
     return api
+
+
+def load_translation_checkpoint(directory: Path, file_id: str) -> dict | None:
+    try:
+        value = json.loads((directory / f"{file_id}.translation.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None

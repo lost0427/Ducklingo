@@ -20,3 +20,26 @@ login_lock_minutes = 15
 csrf_enabled = true
 cookie_secure = false
 allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+[asr]
+timeout_seconds = 300
+local_timeout_seconds = 3600
+retries = 2
+chunk_seconds = 600
+cloud_concurrency = 4
+local_concurrency = 1
+max_chunk_mb = 24
+
+[sentence]
+max_chars_latin = 42
+max_chars_cjk = 21
+batch_words = 800
+retries = 2
+response_format = ""
+
+[translate]
+context_window_tokens = 131072
+max_context_ratio = 0.8
+tokenizer_encoding = "auto"
+batch_retries = 2
+retry_delay_seconds = 0

@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SERVICES = ("asr", "sentence")
+SERVICES = ("asr", "sentence", "translate")
 FIELDS = ("kind", "base_url", "api_key", "model", "api_flavor", "auth_style", "aligner")
 GLOBAL = 0
 
@@ -54,6 +54,8 @@ class SettingsStore:
             """)
 
     def put(self, user_id: int, service: str, values: dict) -> None:
+        if service not in SERVICES:
+            raise ValueError(f"unknown service: {service}")
         unknown = set(values) - set(FIELDS)
         if unknown:
             raise ValueError(f"unknown settings fields: {sorted(unknown)}")

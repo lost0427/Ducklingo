@@ -13,3 +13,4 @@ dependencies:
       - httpx
       - crispasr==0.8.31+cuda
       - numpy
+      - tiktoken
