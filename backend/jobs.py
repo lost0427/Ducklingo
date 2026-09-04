@@ -1,13 +1,16 @@
 import asyncio
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import load_config
+from .logging_config import get_logger, summarize_error
 
 PROVIDERS = ("cloud", "local")
 ERROR_LIMIT = 1000
+log = get_logger("jobs")
 
 
 def _stamp() -> str:
@@ -103,7 +106,7 @@ class JobRunner:
         }
         self.tasks: dict[tuple[str, str], asyncio.Task] = {}
 
-    def enqueue(self, file_id: str, kind: str, user_id: int, provider: str, work) -> asyncio.Task:
+    def enqueue(self, file_id: str, kind: str, user_id: int, provider: str, work, username: str = "") -> asyncio.Task:
         if provider not in PROVIDERS:
             raise ValueError(f"unknown provider: {provider}")
         key = (file_id, kind)
@@ -111,26 +114,35 @@ class JobRunner:
         if active and not active.done():
             raise RuntimeError("job already running")
         self.store.enqueue(file_id, kind, user_id)
-        task = asyncio.create_task(self._run(key, provider, work))
+        log.info("job queued user=%s user_id=%s file_id=%s kind=%s provider=%s", username or "unknown", user_id, file_id, kind, provider)
+        task = asyncio.create_task(self._run(key, provider, work, user_id, username))
         self.tasks[key] = task
         return task
 
-    async def _run(self, key: tuple[str, str], provider: str, work) -> None:
+    async def _run(self, key: tuple[str, str], provider: str, work, user_id: int, username: str) -> None:
         file_id, kind = key
+        user = username or "unknown"
+        queued_at = time.perf_counter()
 
         def report(stage: str) -> None:
             self.store.update(file_id, kind, stage=stage)
+            log.info("job stage user=%s user_id=%s file_id=%s kind=%s stage=%s", user, user_id, file_id, kind, stage)
 
         try:
             async with self.slots[provider]:
+                started_at = time.perf_counter()
                 self.store.update(file_id, kind, status="running")
+                log.info("job started user=%s user_id=%s file_id=%s kind=%s provider=%s queue_seconds=%.3f", user, user_id, file_id, kind, provider, started_at - queued_at)
                 await work(report)
         except asyncio.CancelledError:
             self.store.update(file_id, kind, status="cancelled")
+            log.info("job cancelled user=%s user_id=%s file_id=%s kind=%s elapsed_seconds=%.3f", user, user_id, file_id, kind, time.perf_counter() - queued_at)
         except Exception as exc:
             self.store.update(file_id, kind, status="error", error=(str(exc) or type(exc).__name__)[:ERROR_LIMIT])
+            log.exception("job failed user=%s user_id=%s file_id=%s kind=%s elapsed_seconds=%.3f error=%s", user, user_id, file_id, kind, time.perf_counter() - queued_at, summarize_error(exc))
         else:
             self.store.update(file_id, kind, status="done", stage="")
+            log.info("job completed user=%s user_id=%s file_id=%s kind=%s elapsed_seconds=%.3f", user, user_id, file_id, kind, time.perf_counter() - queued_at)
         finally:
             self.tasks.pop(key, None)
 
@@ -143,11 +155,15 @@ class JobRunner:
         if not task or task.done():
             return False
         self.store.update(file_id, kind, status="cancelling")
+        log.info("job cancelling file_id=%s kind=%s", file_id, kind)
         task.cancel()
         return True
 
     def fail_stale(self) -> int:
-        return self.store.fail_stale()
+        count = self.store.fail_stale()
+        if count:
+            log.warning("marked stale jobs as interrupted count=%s", count)
+        return count
 
 
 def load_job_config(root: Path) -> dict:

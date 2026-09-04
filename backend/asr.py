@@ -10,9 +10,11 @@ from pathlib import Path
 import httpx
 
 from .models import resolve_model, resolve_vad
+from .logging_config import get_logger, summarize_error
 
 SILENCE_RE = re.compile(r"silence_start: ([0-9.]+)")
 BITRATE_BYTES_PER_SECOND = 4000  # 32 kbps mp3
+log = get_logger("asr")
 
 
 def format_ts(seconds: float) -> str:
@@ -107,7 +109,11 @@ def plan_chunks(
 
 
 def _run_ffmpeg(command: list[str], timeout: float, what: str) -> str:
-    result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    except Exception as exc:
+        log.error("ffmpeg failed operation=%s error=%s", what, summarize_error(exc))
+        raise
     if result.returncode:
         raise RuntimeError(f"{what} failed: {result.stderr.strip()[-500:]}")
     return result.stderr
@@ -187,6 +193,7 @@ async def transcribe_chunk(path: Path, settings: dict, asr: dict) -> list[dict]:
                     files={"file": (path.name, path.read_bytes(), "audio/mpeg")},
                 )
             except httpx.TransportError as exc:
+                log.warning("cloud ASR transport error attempt=%s error=%s", attempt + 1, summarize_error(exc))
                 if attempt == retries:
                     raise RuntimeError(f"transcription failed: {exc}") from exc
             else:
@@ -222,14 +229,18 @@ def _run_local_worker(
     command: list[str], cwd: Path, env: dict | None, timeout: float, file_id: str,
     cancelled: threading.Event | None = None,
 ) -> None:
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        cwd=str(cwd),
-        env=env,
-    )
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(cwd),
+            env=env,
+        )
+    except Exception as exc:
+        log.error("local ASR worker failed to start file_id=%s error=%s", file_id, summarize_error(exc))
+        raise
     _LOCAL_WORKERS[file_id] = process
     if cancelled and cancelled.is_set():
         process.terminate()
@@ -238,10 +249,12 @@ def _run_local_worker(
     except subprocess.TimeoutExpired:
         process.kill()
         process.communicate()
+        log.error("local ASR worker timed out file_id=%s", file_id)
         raise RuntimeError("local transcription timed out") from None
     finally:
         _LOCAL_WORKERS.pop(file_id, None)
     if process.returncode:
+        log.error("local ASR worker failed file_id=%s stderr_tail=%s", file_id, stderr.strip()[-500:])
         raise RuntimeError(f"local transcription failed: {stderr.strip()[-500:]}")
 
 

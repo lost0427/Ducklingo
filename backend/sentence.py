@@ -7,11 +7,13 @@ from pathlib import Path
 import httpx
 
 from .asr import headers, load_checkpoint, save_checkpoint
+from .logging_config import get_logger, summarize_error
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "sentence_split.md"
 
 CJK_RUN = re.compile(r"(?<=[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]) (?=[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])")
 CJK_CHAR = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
+log = get_logger("sentence")
 
 
 @lru_cache(maxsize=1)
@@ -90,6 +92,7 @@ async def call_llm(client: httpx.AsyncClient, text: str, prompt: str, settings: 
         try:
             response = await client.post(endpoint(settings), headers=headers(settings), json=body)
         except httpx.TransportError as exc:
+            log.warning("LLM sentence call transport error attempt=%s error=%s", attempt + 1, summarize_error(exc))
             if attempt == retries:
                 raise RuntimeError(f"LLM call failed: {exc}") from exc
         else:
@@ -108,8 +111,6 @@ async def call_llm(client: httpx.AsyncClient, text: str, prompt: str, settings: 
                 raise RuntimeError(
                     f"LLM call failed: HTTP {response.status_code}: {response.text[:200]}"
                 )
-        import asyncio
-
         await asyncio.sleep(2 * (attempt + 1))
     raise RuntimeError("unreachable")
 

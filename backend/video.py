@@ -3,8 +3,11 @@ import time
 from pathlib import Path
 from typing import Literal, TypeAlias
 
+from .logging_config import get_logger
+
 
 VideoQuality: TypeAlias = Literal["best", "2160", "1440", "1080", "720", "480", "360"]
+log = get_logger("video")
 
 
 def format_selector(quality: str) -> str:
@@ -49,6 +52,7 @@ def download_video(
         try:
             result = subprocess.run(command, text=True, capture_output=True, timeout=timeout_seconds)
         except subprocess.TimeoutExpired as exc:
+            log.warning("video download timeout attempt=%s/%s", attempt + 1, retries + 1)
             if attempt == retries:
                 raise RuntimeError("video download timed out") from exc
         else:

@@ -185,7 +185,7 @@ def router(
             sentences = validate_timeline(sentences, duration)
             (directory / f"{file_id}.srt").write_text(build_srt(sentences), "utf-8")
 
-        runner.enqueue(file_id, "asr", user["id"], asr_settings["kind"], work)
+        runner.enqueue(file_id, "asr", user["id"], asr_settings["kind"], work, username=user["username"])
         return {"ok": True}
 
     @api.get("/status/{file_id}")
