@@ -71,6 +71,11 @@ const translationProgress = computed(() => {
   return total ? `${completed}/${total}` : ''
 })
 
+function normalizeContextRatio() {
+  const ratio = Number(contextRatio.value)
+  contextRatio.value = Number.isFinite(ratio) ? Math.min(95, Math.max(10, Math.round(ratio))) : 80
+}
+
 const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
   { value: 'best', label: 'qualityBest' },
   { value: '2160', label: 'quality2160' },
@@ -500,8 +505,14 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
           </fieldset>
         </div>
         <fieldset class="fieldset">
-          <label class="label p-0 text-sm font-semibold" for="context-ratio">{{ t.contextRatio }} {{ contextRatio }}%</label>
-          <input id="context-ratio" v-model.number="contextRatio" class="range range-primary" type="range" min="10" max="95" step="1" :disabled="asrRunning" />
+          <label class="label p-0 text-sm font-semibold" for="context-ratio">{{ t.contextRatio }}</label>
+          <div class="flex items-center gap-3">
+            <input id="context-ratio" v-model.number="contextRatio" class="range range-primary range-xs min-w-0 flex-1 [--range-bg:transparent] [--range-fill:0] [&::-moz-range-track]:border [&::-moz-range-track]:border-primary [&::-webkit-slider-runnable-track]:border [&::-webkit-slider-runnable-track]:border-primary" type="range" min="10" max="95" step="1" :disabled="asrRunning" />
+            <div class="flex items-center gap-1">
+              <input id="context-ratio-value" v-model.number="contextRatio" class="input input-sm w-16 bg-base-200 text-center" type="number" min="10" max="95" step="1" :disabled="asrRunning" :aria-label="t.contextRatio" @change="normalizeContextRatio" />
+              <span aria-hidden="true">%</span>
+            </div>
+          </div>
         </fieldset>
         <p class="flex items-center gap-2 text-sm">
           <span v-if="asrRunning" class="loading loading-spinner loading-sm" aria-hidden="true"></span>
