@@ -270,7 +270,7 @@ class AsrApiTest(unittest.TestCase):
             return [{"text": "hello", "start": 0.0, "end": 0.5}]
 
         async def fake_translate(report, sentences, translate_settings, translate_section, checkpoint, **kwargs):
-            checkpoint.write_text(json.dumps({"target_language": kwargs["target_language"], "mode": kwargs["mode"], "reasoning_effort": kwargs["reasoning_effort"], "context_window_tokens": 131072, "max_context_ratio": 0.8, "batches": [{"done": True, "translations": {"1": "hello"}}]}), "utf-8")
+            checkpoint.write_text(json.dumps({"target_language": kwargs["target_language"], "mode": kwargs["mode"], "reasoning_effort": kwargs["reasoning_effort"], "context_window_tokens": 131072, "max_context_ratio": 0.8, "translations": {"1": "hello"}, "total_items": 1}), "utf-8")
             return [{**sentences[0], "id": "1", "translation": "hello"}]
 
         def fake_archive(directory, sentences):

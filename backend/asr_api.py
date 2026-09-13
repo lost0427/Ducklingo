@@ -247,14 +247,13 @@ def router(
         own_file(user["id"], file_id)
         job = runner.store.get(file_id, "asr")
         translation = load_translation_checkpoint(media_dir(user["id"]), file_id)
-        batches = translation.get("batches", []) if translation else []
         return {
             "status": job["status"] if job else "idle",
             "stage": job["stage"] if job else "",
             "error": job["error"] if job else "",
             "has_srt": (media_dir(user["id"]) / f"{file_id}.srt").exists(),
-            "completed_batches": sum(1 for batch in batches if batch.get("done")),
-            "total_batches": len(batches),
+            "completed_batches": len(translation.get("translations", {})) if translation else 0,
+            "total_batches": int(translation.get("total_items", 0)) if translation else 0,
             "target_language": translation.get("target_language", "") if translation else "",
             "mode": translation.get("mode", "standard") if translation else "standard",
             "reasoning_effort": translation.get("reasoning_effort", "off") if translation else "off",
