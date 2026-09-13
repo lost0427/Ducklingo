@@ -350,40 +350,59 @@ async def translate_sentences(
         raise ValueError("reasoning_effort must be off, low, medium, or high")
     if not target_language.strip():
         raise ValueError("target_language is required")
-    batches = plan_batches(sentences, target_language, mode, {**config, "model": settings.get("model", "")})
+    item_ids = [str(sentence.get("id", i + 1)) for i, sentence in enumerate(sentences)]
+    work = [{**sentence, "id": item_ids[i]} for i, sentence in enumerate(sentences)]
     source_hash = hashlib.sha256(json.dumps(sentences, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-    metadata = {
+    # Changing these changes the meaning of every stored translation; everything
+    # else (model, context window, reasoning_effort) only affects the remaining work.
+    hard = {
         "source_hash": source_hash,
-        "source_subtitle_hash": source_hash,
         "target_language": target_language,
         "mode": mode,
+        "prompt_hash": prompt_hash(mode),
+    }
+    state = load_checkpoint(checkpoint)
+    if state and "translations" not in state:
+        state["translations"] = {
+            key: value
+            for batch in state.get("batches", [])
+            for key, value in (batch.get("translations") or batch.get("results") or {}).items()
+        }
+    if not state or any(state.get(key) != value for key, value in hard.items()):
+        state = {**hard, "translations": {}}
+    state.update({
+        "source_subtitle_hash": source_hash,
         "reasoning_effort": reasoning_effort,
         "context_window_tokens": int(config.get("context_window_tokens", DEFAULT_CONTEXT_WINDOW)),
         "max_context_ratio": context_ratio(config.get("max_context_ratio", DEFAULT_CONTEXT_RATIO)),
         "tokenizer_encoding": str(config.get("tokenizer_encoding", "auto")),
-        "prompt_hash": prompt_hash(mode),
-    }
-    state = load_checkpoint(checkpoint)
-    if not state or any(state.get(key) != value for key, value in metadata.items()) or len(state.get("batches", [])) != len(batches):
-        state = {**metadata, "updated_at": datetime.now(timezone.utc).isoformat(), "batches": [{"done": False, "translations": {}, "results": {}} for _ in batches]}
-        save_checkpoint(checkpoint, state)
+        "total_items": len(sentences),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    save_checkpoint(checkpoint, state)
     report("translate")
-    translated: dict[str, str] = {}
-    item_ids = [str(sentence.get("id", i + 1)) for i, sentence in enumerate(sentences)]
+    translated: dict[str, str] = dict(state["translations"])
+    budget = context_budget(config)
+    encoding = str(config.get("tokenizer_encoding", "auto"))
+    model = settings.get("model", "")
+    index_of = {item_id: index for index, item_id in enumerate(item_ids)}
+    pending = [item for item in work if item["id"] not in translated]
+    batches = plan_batches(pending, target_language, mode, {**config, "model": model}) if pending else []
     async with httpx.AsyncClient(timeout=timeout) as client:
         for index, batch in enumerate(batches):
-            entry = state["batches"][index]
-            if entry.get("done"):
-                translated.update(entry.get("translations") or entry.get("results", {}))
-                continue
-            completed = [
-                {"id": item_ids[i], "source": _source_text(sentence), "translation": translated[item_ids[i]]}
-                for i, sentence in enumerate(sentences[:batch["start"]])
+            items = batch["items"]
+            first = index_of[items[0]["id"]]
+            last = index_of[items[-1]["id"]]
+            before = [
+                {"id": item_ids[i], "source": _source_text(sentences[i]), "translation": translated[item_ids[i]]}
+                for i in range(max(0, first - CONTEXT_ITEMS), first)
                 if item_ids[i] in translated
-            ][-CONTEXT_ITEMS:]
-            before = [{"id": item["id"], "source": item["source"], "translation": item.get("translation", "")} for item in completed]
-            after = [{"id": item_ids[i], "source": _source_text(sentence)} for i, sentence in enumerate(sentences[batch["end"]:batch["end"] + CONTEXT_ITEMS], batch["end"])]
-            payload = _trim_context(system_prompt(mode), _payload(target_language, before, batch["items"], after), context_budget(config), str(config.get("tokenizer_encoding", "auto")), settings.get("model", ""))
+            ]
+            after = [
+                {"id": item_ids[i], "source": _source_text(sentences[i])}
+                for i in range(last + 1, min(len(sentences), last + 1 + CONTEXT_ITEMS))
+            ]
+            payload = _trim_context(system_prompt(mode), _payload(target_language, before, items, after), budget, encoding, model)
 
             async def send(group: list[dict], group_payload: dict) -> dict[str, str]:
                 try:
@@ -399,16 +418,14 @@ async def translate_sentences(
                     return {**await send(left, left_payload), **await send(right, right_payload)}
 
             try:
-                result = await send(batch["items"], payload)
+                result = await send(items, payload)
             except TranslationResponseError as exc:
-                subtitle = batch["items"][0]["id"] if len(batch["items"]) == 1 else "batch"
+                subtitle = items[0]["id"] if len(items) == 1 else "batch"
                 raise RuntimeError(f"translation batch {index + 1}/{len(batches)} failed for subtitle {subtitle}: {exc}") from exc
-            entry["translations"] = result
-            entry["results"] = result
-            entry["done"] = True
+            translated.update(result)
+            state["translations"] = translated
             state["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_checkpoint(checkpoint, state)
-            translated.update(result)
     return [
         {**sentence, "id": item_ids[i], "translation": translated.get(item_ids[i], "")}
         for i, sentence in enumerate(sentences)

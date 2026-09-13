@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -9,9 +10,16 @@ from backend.translation import (
     build_translation_batches,
     context_budget,
     create_archive,
+    prompt_hash,
     translate_sentences,
     validate_translation_response,
 )
+
+
+def source_hash(sentences: list[dict]) -> str:
+    return hashlib.sha256(
+        json.dumps(sentences, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 class TranslationHelpersTest(unittest.TestCase):
@@ -81,7 +89,47 @@ class TranslationCheckpointTest(unittest.IsolatedAsyncioTestCase):
                 )
             self.assertEqual(result[0]["translation"], "你好")
             self.assertEqual(captured["reasoning_effort"], "high")
-            self.assertTrue(json.loads(checkpoint.read_text("utf-8"))["batches"][0]["done"])
+            self.assertEqual(json.loads(checkpoint.read_text("utf-8"))["translations"], {"1": "你好"})
+
+    async def test_soft_config_keeps_translated_ids(self):
+        calls = []
+
+        class Response:
+            status_code = 200
+            text = ""
+
+            def __init__(self, content):
+                self.content = content
+
+            def json(self):
+                return {"choices": [{"message": {"content": self.content}}]}
+
+        class Client:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): return False
+
+            async def post(self, url, **kwargs):
+                items = json.loads(kwargs["json"]["messages"][1]["content"])["items"]
+                calls.append([item["id"] for item in items])
+                return Response(json.dumps({item["id"]: "new-" + item["id"] for item in items}))
+
+        sentences = [{"text": "one", "start": 0.0, "end": 1.0}, {"text": "two", "start": 1.0, "end": 2.0}]
+        with tempfile.TemporaryDirectory() as directory, patch("backend.translation.httpx.AsyncClient", return_value=Client()):
+            checkpoint = Path(directory) / "translation.json"
+            checkpoint.write_text(json.dumps({
+                "source_hash": source_hash(sentences),
+                "target_language": "简体中文",
+                "mode": "standard",
+                "prompt_hash": prompt_hash("standard"),
+                "translations": {"1": "old-1"},
+            }), "utf-8")
+            result = await translate_sentences(
+                lambda stage: None, sentences,
+                {"base_url": "https://llm/v1", "api_key": "k", "model": "new"},
+                {"batch_retries": 0}, checkpoint,
+            )
+        self.assertEqual([item["translation"] for item in result], ["old-1", "new-2"])
+        self.assertEqual(calls, [["2"]])
 
     async def test_invalid_batch_is_retried_then_bisected(self):
         calls = []
