@@ -33,6 +33,10 @@ const qualities = [
   { value: '480', label: t.value.quality480 },
 ]
 const running = computed(() => items.value.some((item) => !['done', 'error', 'cancelled'].includes(item.status)))
+const CONTEXT_PRESETS = ['32768', '65536', '131072', '262144', '524288', '1048576']
+const contextPreset = ref('131072')
+const customContextWindow = ref('')
+const contextRatio = ref(80)
 const statusText = (status: string) =>
   ({
     pending: t.value.asrStageQueue,
@@ -54,6 +58,10 @@ async function load() {
     items.value = state.items
     if (!optionsLoaded) {
       Object.assign(options, state.options)
+      const preset = String(state.options.context_window_tokens)
+      contextPreset.value = CONTEXT_PRESETS.includes(preset) ? preset : 'custom'
+      customContextWindow.value = contextPreset.value === 'custom' ? preset : ''
+      contextRatio.value = Math.round(Number(state.options.max_context_ratio) * 100)
       optionsLoaded = true
     }
   } catch (err) {
@@ -61,8 +69,21 @@ async function load() {
   }
 }
 
+function applyContextOptions() {
+  if (contextPreset.value === 'custom' && (!Number.isInteger(Number(customContextWindow.value)) || Number(customContextWindow.value) < 1)) {
+    return false
+  }
+  options.context_window_tokens = contextPreset.value === 'custom' ? customContextWindow.value : contextPreset.value
+  options.max_context_ratio = String(Math.min(95, Math.max(10, Math.round(contextRatio.value))) / 100)
+  return true
+}
+
 async function saveOptions() {
   error.value = ''
+  if (!applyContextOptions()) {
+    error.value = t.value.invalidContextWindow
+    return
+  }
   try {
     await putBatchOptions(options)
   } catch (err) {
@@ -74,6 +95,10 @@ async function add() {
   const list = urls.value.split('\n').map((line) => line.trim()).filter(Boolean)
   if (!list.length) {
     error.value = t.value.noValidUrls
+    return
+  }
+  if (!applyContextOptions()) {
+    error.value = t.value.invalidContextWindow
     return
   }
   error.value = ''
@@ -141,6 +166,26 @@ onUnmounted(() => window.clearInterval(timer))
             <option value="medium">{{ t.reasoningMedium }}</option>
             <option value="high">{{ t.reasoningHigh }}</option>
           </select>
+        </fieldset>
+        <fieldset class="fieldset">
+          <label class="label p-0 text-sm font-semibold" for="batch-context-window">{{ t.contextWindow }}</label>
+          <select id="batch-context-window" v-model="contextPreset" class="select w-full bg-base-200">
+            <option value="32768">32K</option>
+            <option value="65536">64K</option>
+            <option value="131072">128K</option>
+            <option value="262144">256K</option>
+            <option value="524288">512K</option>
+            <option value="1048576">1M</option>
+            <option value="custom">{{ t.custom }}</option>
+          </select>
+          <input v-if="contextPreset === 'custom'" v-model="customContextWindow" class="input input-sm mt-1 w-full bg-base-200" type="number" min="1" :placeholder="t.customContextHint" />
+        </fieldset>
+        <fieldset class="fieldset">
+          <label class="label p-0 text-sm font-semibold" for="batch-context-ratio">{{ t.contextRatio }}</label>
+          <div class="flex items-center gap-2">
+            <input id="batch-context-ratio" v-model.number="contextRatio" class="input input-sm w-20 bg-base-200 text-center" type="number" min="10" max="95" step="1" />
+            <span aria-hidden="true">%</span>
+          </div>
         </fieldset>
       </div>
       <label class="label cursor-pointer justify-start gap-3 p-0">
