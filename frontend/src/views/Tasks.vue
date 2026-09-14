@@ -200,14 +200,14 @@ watch(
           </label>
         </fieldset>
       </div>
-      <label class="label cursor-pointer justify-start gap-3 p-0">
-        <input class="toggle toggle-primary" type="checkbox" :checked="options.mode === 'reflect'" @change="setMode" />
-        <span>{{ options.mode === 'reflect' ? t.reflectMode : t.standardMode }}</span>
-      </label>
-      <div class="flex flex-wrap items-center gap-2">
-        <button class="btn btn-primary flex-1" type="button" @click="add">{{ t.addToQueue }}</button>
-        <span v-if="saved" class="text-xs text-success">{{ t.batchSaved }}</span>
+      <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <label class="label cursor-pointer justify-start gap-3 p-0">
+          <input class="toggle toggle-primary" type="checkbox" :checked="options.mode === 'reflect'" @change="setMode" />
+          <span>{{ options.mode === 'reflect' ? t.reflectMode : t.standardMode }}</span>
+        </label>
+        <span v-if="saved" class="text-left text-xs text-success sm:text-right">{{ t.batchSaved }}</span>
       </div>
+      <button class="btn btn-primary w-full" type="button" @click="add">{{ t.addToQueue }}</button>
       <p v-if="error" role="alert" class="alert alert-error"><span class="break-all">{{ error }}</span></p>
     </div>
 
