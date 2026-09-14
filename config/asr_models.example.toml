@@ -1,5 +1,6 @@
-# ASR model URLs match crispasr's built-in registry (registry_lookup);
-# the VAD model is the upstream whisper.cpp Silero asset.
+# ASR model URLs match crispasr's built-in registry (registry_lookup),
+# except qwen3-asr-0.6b (the imatrix quant is not in the registry); the
+# VAD model is the upstream whisper.cpp Silero asset.
 
 [[models]]
 id = "silero-vad"
@@ -22,17 +23,23 @@ name = "Whisper small (ggml, multilingual)"
 url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
 filename = "ggml-small.bin"
 
-# Add LLM-backend models (qwen3 etc.) with an aligner entry for word timestamps:
-# [[models]]
-# id = "qwen3-asr-1.7b-q8"
-# kind = "asr"
-# name = "Qwen3 ASR 1.7B (Q8_0)"
-# url = "https://huggingface.co/....gguf"
-# filename = "qwen3-asr-1.7b-q8_0.gguf"
-#
-# [[models]]
-# id = "qwen3-aligner"
-# kind = "aligner"
-# name = "CTC aligner for qwen3"
-# url = "https://huggingface.co/....gguf"
-# filename = "qwen3-aligner.gguf"
+[[models]]
+id = "qwen3-asr-0.6b"
+kind = "asr"
+name = "Qwen3 ASR 0.6B (Q4_K imatrix)"
+url = "https://huggingface.co/cstr/qwen3-asr-0.6b-GGUF/resolve/main/qwen3-asr-0.6b-q4_k-imatrix.gguf"
+filename = "qwen3-asr-0.6b-q4_k-imatrix.gguf"
+
+[[models]]
+id = "qwen3-asr-1.7b"
+kind = "asr"
+name = "Qwen3 ASR 1.7B (Q4_K)"
+url = "https://huggingface.co/cstr/qwen3-asr-1.7b-GGUF/resolve/main/qwen3-asr-1.7b-q4_k.gguf"
+filename = "qwen3-asr-1.7b-q4_k.gguf"
+
+[[models]]
+id = "qwen3-forced-aligner"
+kind = "aligner"
+name = "Qwen3 Forced Aligner 0.6B (Q4_K)"
+url = "https://huggingface.co/cstr/qwen3-forced-aligner-0.6b-GGUF/resolve/main/qwen3-forced-aligner-0.6b-q4_k.gguf"
+filename = "qwen3-forced-aligner-0.6b-q4_k.gguf"
