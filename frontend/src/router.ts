@@ -4,6 +4,7 @@ import Home from './views/Home.vue'
 import Login from './views/Login.vue'
 import Settings from './views/Settings.vue'
 import Shell from './views/Shell.vue'
+import Tasks from './views/Tasks.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -14,6 +15,7 @@ const router = createRouter({
       component: Shell,
       children: [
         { path: '', component: Home },
+        { path: 'tasks', component: Tasks },
         { path: 'settings', component: Settings },
       ],
     },

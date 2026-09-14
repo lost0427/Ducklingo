@@ -202,6 +202,43 @@ export function asrArchiveUrl(fileId: string) {
   return '/api/asr/archive/' + fileId
 }
 
+export type BatchItem = { id: number; url: string; file_id: string; status: string; error: string }
+export type BatchOptions = {
+  quality: string
+  language: string
+  target_language: string
+  mode: 'standard' | 'reflect'
+  reasoning_effort: 'off' | 'low' | 'medium' | 'high'
+  context_window_tokens: string
+  max_context_ratio: string
+}
+export type BatchState = { items: BatchItem[]; options: BatchOptions }
+
+export function listBatch() {
+  return request<BatchState>('/api/batch')
+}
+
+export function addBatch(urls: string[]) {
+  return request<{ ids: number[] }>('/api/batch', { method: 'POST', body: JSON.stringify({ urls }) })
+}
+
+export function putBatchOptions(options: Partial<BatchOptions>) {
+  return request<{ ok: boolean }>('/api/batch/options', { method: 'PUT', body: JSON.stringify(options) })
+}
+
+export function retryBatch(id: number) {
+  return request<{ ok: boolean }>(`/api/batch/${id}/retry`, { method: 'POST' })
+}
+
+export function cancelBatch(id: number) {
+  return request<{ ok: boolean }>(`/api/batch/${id}/cancel`, { method: 'POST' })
+}
+
+export function deleteBatch(id: number) {
+  return request<{ ok: boolean }>(`/api/batch/${id}`, { method: 'DELETE' })
+}
+
+
 async function responseError(response: Response) {
   const text = await response.text()
   try {

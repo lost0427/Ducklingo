@@ -82,10 +82,10 @@ async function onLogout() {
             </RouterLink>
           </li>
           <li>
-            <button type="button" disabled class="is-drawer-close:tooltip is-drawer-close:tooltip-right" :data-tip="t.tasksSoon">
+            <RouterLink to="/tasks" class="is-drawer-close:tooltip is-drawer-close:tooltip-right" :data-tip="t.tasks">
               <DocumentTextIcon class="my-1.5 inline-block size-4" aria-hidden="true" />
-              <span class="is-drawer-close:hidden truncate">{{ t.tasks }} · {{ t.tasksSoon }}</span>
-            </button>
+              <span class="is-drawer-close:hidden truncate">{{ t.tasks }}</span>
+            </RouterLink>
           </li>
           <li>
             <RouterLink to="/settings" class="is-drawer-close:tooltip is-drawer-close:tooltip-right" :data-tip="t.settings">
