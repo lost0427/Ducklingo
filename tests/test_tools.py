@@ -3,7 +3,34 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.tools import ensure_ffmpeg, ensure_ytdlp
+from backend.tools import download_file, ensure_ffmpeg, ensure_ytdlp
+
+
+class TruncatedResponse:
+    headers = {"Content-Length": "10"}
+
+    def __init__(self):
+        self._chunks = [b"12345"]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, size):
+        return self._chunks.pop(0) if self._chunks else b""
+
+
+class DownloadFileTest(unittest.TestCase):
+    def test_incomplete_download_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "model.gguf"
+            with patch("urllib.request.urlopen", return_value=TruncatedResponse()):
+                with self.assertRaises(OSError):
+                    download_file("https://example.com/model.gguf", target)
+            self.assertFalse(target.exists())
+            self.assertFalse(target.with_suffix(".gguf.part").exists())
 
 
 class ToolUpdateTest(unittest.TestCase):

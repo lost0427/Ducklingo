@@ -24,6 +24,9 @@ def download_file(url: str, target: Path, on_progress=None) -> None:
                 received += len(chunk)
                 if on_progress:
                     on_progress(received, total)
+        if total and received != total:
+            temp.unlink(missing_ok=True)
+            raise OSError(f"incomplete download: {received}/{total} bytes from {url}")
         if temp.stat().st_size == 0:
             raise OSError(f"empty download: {url}")
         temp.replace(target)

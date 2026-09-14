@@ -92,6 +92,13 @@ def snapshot_status() -> dict:
     return dict(_status)
 
 
+def valid_model_file(path: Path) -> bool:
+    if path.suffix.lower() != ".gguf":
+        return True
+    with path.open("rb") as handle:
+        return handle.read(4) == b"GGUF"
+
+
 def download_model(root: Path, model_id: str) -> None:
     entry = next((m for m in load_registry(root) if m["id"] == model_id), None)
     if entry is None:
@@ -108,6 +115,9 @@ def download_model(root: Path, model_id: str) -> None:
 
         try:
             download_file(entry["url"], target, progress)
+            if not valid_model_file(target):
+                target.unlink(missing_ok=True)
+                raise RuntimeError("downloaded file is not a valid GGUF model")
         except Exception as exc:
             _status[model_id] = {"status": "error", "error": str(exc)[:500]}
             raise RuntimeError(f"model download failed: {exc}") from exc

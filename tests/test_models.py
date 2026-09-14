@@ -35,6 +35,15 @@ url = "https://example.com/silero-v6.2.0.bin"
 filename = "silero-v6.2.0.bin"
 """
 
+GGUF_REGISTRY = """
+[[models]]
+id = "qwen"
+kind = "asr"
+name = "Qwen"
+url = "https://example.com/qwen.gguf"
+filename = "qwen.gguf"
+"""
+
 
 def root_with(directory: str, files: dict[str, bytes] | None = None) -> Path:
     root = Path(directory)
@@ -141,6 +150,23 @@ class DownloadModelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError):
                 download_model(root_with(directory), "nope")
+
+    def test_gguf_magic_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config").mkdir()
+            (root / "config" / "asr_models.toml").write_text(GGUF_REGISTRY, encoding="utf-8")
+            target = root / "data" / "models" / "asr" / "qwen.gguf"
+
+            with patch("backend.models.download_file", lambda url, path, on_progress=None: path.write_bytes(b"not a gguf")):
+                with self.assertRaises(RuntimeError):
+                    download_model(root, "qwen")
+            self.assertFalse(target.exists())
+
+            with patch("backend.models.download_file", lambda url, path, on_progress=None: path.write_bytes(b"GGUF\x00\x00")):
+                download_model(root, "qwen")
+            self.assertTrue(target.exists())
+            self.assertEqual(snapshot_status()["qwen"]["status"], "done")
 
 
 class CheckpointWordsTest(unittest.TestCase):
