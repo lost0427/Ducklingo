@@ -2,3 +2,7 @@
 @plugin "daisyui" {
   themes: light --default, dark --prefersdark;
 }
+
+.btn {
+  white-space: nowrap;
+}
