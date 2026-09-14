@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   addBatch,
   asrArchiveUrl,
@@ -14,7 +14,8 @@ import {
 } from '../api'
 import { t } from '../prefs'
 
-const urls = ref('')
+const URLS_KEY = 'batchUrls'
+const urls = ref(localStorage.getItem(URLS_KEY) || '')
 const items = ref<BatchItem[]>([])
 const error = ref('')
 const options = reactive<BatchOptions>({
@@ -133,6 +134,7 @@ onMounted(() => {
   }, 2000)
 })
 onUnmounted(() => window.clearInterval(timer))
+watch(urls, (value) => localStorage.setItem(URLS_KEY, value))
 </script>
 
 <template>
