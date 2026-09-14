@@ -226,7 +226,7 @@ watch(
           <button v-if="running && !['done', 'error', 'cancelled'].includes(item.status)" class="btn btn-xs" type="button" @click="act(cancelBatch, item.id)">
             {{ t.cancel }}
           </button>
-          <a v-if="item.file_id" class="btn btn-xs btn-outline" :href="asrArchiveUrl(item.file_id)" download>{{ t.downloadArchive }}</a>
+          <a v-if="item.status === 'done'" class="btn btn-xs btn-outline" :href="asrArchiveUrl(item.file_id)" download>{{ t.downloadArchive }}</a>
           <button class="btn btn-xs btn-ghost" type="button" @click="act(deleteBatch, item.id)">{{ t.remove }}</button>
         </div>
       </li>
