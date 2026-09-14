@@ -185,10 +185,10 @@ class AsrApiTest(unittest.TestCase):
         async def fake_split(report, words, sentence_settings, sentence_section, checkpoint, timeout=300.0):
             return [{"text": "hello world", "start": 0.0, "end": 10.0}]
 
-        with patch("backend.asr_api.transcribe_cloud", fake_cloud), patch(
-            "backend.asr_api.split_sentences", fake_split
-        ), patch("backend.asr_api.resolve_ffmpeg", return_value=Path("ffmpeg")), patch(
-            "backend.asr_api.probe_duration", return_value=5.0
+        with patch("backend.pipeline.transcribe_cloud", fake_cloud), patch(
+            "backend.pipeline.split_sentences", fake_split
+        ), patch("backend.pipeline.resolve_ffmpeg", return_value=Path("ffmpeg")), patch(
+            "backend.pipeline.probe_duration", return_value=5.0
         ):
             with TestClient(create_app(root / "app.db", AuthConfig(cookie_secure=False), root)) as client:
                 client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD})
@@ -232,10 +232,10 @@ class AsrApiTest(unittest.TestCase):
         async def fake_split(report, words, sentence_settings, sentence_section, checkpoint, timeout=300.0):
             return [{"text": "hello", "start": 0.0, "end": 1.0}]
 
-        with patch("backend.asr_api.transcribe_cloud", fake_cloud), patch(
-            "backend.asr_api.split_sentences", fake_split
-        ), patch("backend.asr_api.resolve_ffmpeg", return_value=Path("ffmpeg")), patch(
-            "backend.asr_api.probe_duration", return_value=0.5
+        with patch("backend.pipeline.transcribe_cloud", fake_cloud), patch(
+            "backend.pipeline.split_sentences", fake_split
+        ), patch("backend.pipeline.resolve_ffmpeg", return_value=Path("ffmpeg")), patch(
+            "backend.pipeline.probe_duration", return_value=0.5
         ):
             self.assertEqual(
                 alice.post("/api/asr/start", json={"file_id": file_id}, headers=self.csrf(alice)).status_code,
@@ -273,7 +273,7 @@ class AsrApiTest(unittest.TestCase):
             archive.write_bytes(b"zip")
             return archive
 
-        with patch("backend.asr_api.transcribe_cloud", fake_cloud), patch("backend.asr_api.split_sentences", fake_split), patch("backend.asr_api.translate_sentences", fake_translate), patch("backend.asr_api.create_archive", fake_archive), patch("backend.asr_api.resolve_ffmpeg", return_value=Path("ffmpeg")), patch("backend.asr_api.probe_duration", return_value=5.0):
+        with patch("backend.pipeline.transcribe_cloud", fake_cloud), patch("backend.pipeline.split_sentences", fake_split), patch("backend.pipeline.translate_sentences", fake_translate), patch("backend.pipeline.create_archive", fake_archive), patch("backend.pipeline.resolve_ffmpeg", return_value=Path("ffmpeg")), patch("backend.pipeline.probe_duration", return_value=5.0):
             with TestClient(create_app(root / "app.db", AuthConfig(cookie_secure=False), root)) as client:
                 client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD})
                 self.assertEqual(client.post("/api/asr/start", json={"file_id": file_id, "target_language": "Chinese", "reasoning_effort": "high"}, headers=self.csrf(client)).status_code, 200)
