@@ -160,7 +160,7 @@ class AsrApiTest(unittest.TestCase):
         self.assertEqual(remaining, [file_id + ".mp4"])
         self.assertEqual(alice.get(f"/api/asr/status/{file_id}").json()["status"], "idle")
 
-    def test_end_to_end_job_produces_srt(self):
+    def test_end_to_end_job_completes(self):
         file_id = "e" + "0" * 30 + "1"
         root, media, alice, _, _ = self.build({f"1/{file_id}.mp4": b"video"})
         media.register(file_id, 1, "movie.mp4", "upload", 5, "video/mp4")
@@ -201,11 +201,6 @@ class AsrApiTest(unittest.TestCase):
                         break
                     time.sleep(0.05)
                 self.assertEqual(status["status"], "done", status)
-                self.assertTrue(status["has_srt"])
-                srt = client.get(f"/api/asr/srt/{file_id}")
-                self.assertEqual(srt.status_code, 200)
-                self.assertIn("hello world", srt.text)
-                self.assertIn("00:00:05,000", srt.text)
                 self.assertEqual(
                     client.post(f"/api/asr/cancel/{file_id}", headers=self.csrf(client)).status_code,
                     200,

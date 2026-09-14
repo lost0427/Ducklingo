@@ -142,7 +142,6 @@ export type JobStatus = {
   status: string
   stage: string
   error: string
-  has_srt: boolean
   completed_batches: number
   total_batches: number
   target_language: string
@@ -197,10 +196,6 @@ export function resetAsr(fileId: string, scope: 'all' | 'translation' = 'all') {
     method: 'POST',
     ...(scope === 'translation' ? { body: JSON.stringify({ scope }) } : {}),
   })
-}
-
-export function asrSrtUrl(fileId: string) {
-  return '/api/asr/srt/' + fileId
 }
 
 export function asrArchiveUrl(fileId: string) {

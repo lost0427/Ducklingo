@@ -5,10 +5,10 @@ from pathlib import Path
 from fastapi import APIRouter, Cookie, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from .asr import build_srt, kill_local, probe_duration, save_checkpoint, transcribe_cloud, transcribe_local, validate_timeline
+from .asr import kill_local, probe_duration, save_checkpoint, transcribe_cloud, transcribe_local, validate_timeline
 from .auth.api import guards
 from .config import load_config, project_path
-from .media_store import FILE_ID_PATTERN, sanitize_filename
+from .media_store import FILE_ID_PATTERN
 from .models import download_model, list_models, load_registry, snapshot_status
 from .sentence import split_sentences
 from .settings_store import FIELDS, GLOBAL, SERVICES, SettingsStore
@@ -230,13 +230,10 @@ def router(
                     cache_dir=Path(root) / "data" / "translation-cache" / str(user["id"]),
                     timeout=float(translate_section.get("timeout_seconds", asr_section.get("timeout_seconds", 300))),
                 )
-                (directory / f"{file_id}.srt").write_text(build_srt(sentences), "utf-8")
                 archive = await asyncio.to_thread(create_archive, directory, translated)
                 state = json.loads((directory / f"{file_id}.translation.json").read_text("utf-8"))
                 state["archive"] = archive.name
                 save_checkpoint(directory / f"{file_id}.translation.json", state)
-            else:
-                (directory / f"{file_id}.srt").write_text(build_srt(sentences), "utf-8")
 
         runner.enqueue(file_id, "asr", user["id"], asr_settings["kind"], work, username=user["username"])
         return {"ok": True}
@@ -251,7 +248,6 @@ def router(
             "status": job["status"] if job else "idle",
             "stage": job["stage"] if job else "",
             "error": job["error"] if job else "",
-            "has_srt": (media_dir(user["id"]) / f"{file_id}.srt").exists(),
             "completed_batches": len(translation.get("translations", {})) if translation else 0,
             "total_batches": int(translation.get("total_items", 0)) if translation else 0,
             "target_language": translation.get("target_language", "") if translation else "",
@@ -297,16 +293,6 @@ def router(
                 path.unlink(missing_ok=True)
         runner.store.delete(file_id, "asr")
         return {"ok": True}
-
-    @api.get("/srt/{file_id}")
-    def get_srt(file_id: str, ducklingo_session: str | None = Cookie(default=None)):
-        user = current(ducklingo_session)
-        row = own_file(user["id"], file_id)
-        path = media_dir(user["id"]) / f"{file_id}.srt"
-        if not path.exists():
-            raise HTTPException(404, "Subtitle not found")
-        name = sanitize_filename(Path(row["filename"]).stem) + ".srt"
-        return FileResponse(path, media_type="application/x-subrip", filename=name)
 
     @api.get("/archive/{file_id}")
     def get_archive(file_id: str, ducklingo_session: str | None = Cookie(default=None)):

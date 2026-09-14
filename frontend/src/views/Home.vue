@@ -4,7 +4,6 @@ import { ArrowDownTrayIcon, CloudArrowUpIcon, TrashIcon } from '@heroicons/vue/2
 import {
   asrStatus,
   asrArchiveUrl,
-  asrSrtUrl,
   cancelAsr,
   deleteUploadedFile,
   downloadVideo,
@@ -469,7 +468,7 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
         <fieldset class="fieldset">
           <label class="label p-0 text-sm font-semibold" for="asr-language">{{ t.asrLanguage }}</label>
           <input id="asr-language" v-model="asrLanguage" class="input w-full bg-base-200" :disabled="asrRunning" />
-          <p class="label">{{ t.asrLanguageHint }}</p>
+          <p class="whitespace-pre-line text-xs text-base-content/60">{{ t.asrLanguageHint }}</p>
         </fieldset>
         <div class="grid gap-3 sm:grid-cols-2">
           <fieldset class="fieldset">
@@ -542,10 +541,6 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
           >
             {{ t.asrReset }}
           </button>
-          <a v-if="job?.has_srt" class="btn btn-outline flex-1 border-base-content/80" :href="asrSrtUrl(currentFile.id)" download>
-            <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
-            {{ t.downloadSrt }}
-          </a>
           <a v-if="job?.has_archive" class="btn btn-primary flex-1" :href="asrArchiveUrl(currentFile.id)" download>
             <ArrowDownTrayIcon class="size-5" aria-hidden="true" />
             {{ t.downloadArchive }}
