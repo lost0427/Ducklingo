@@ -184,10 +184,10 @@ watch(urls, (value) => localStorage.setItem(URLS_KEY, value))
         </fieldset>
         <fieldset class="fieldset">
           <label class="label p-0 text-sm font-semibold" for="batch-context-ratio">{{ t.contextRatio }}</label>
-          <div class="flex items-center gap-2">
-            <input id="batch-context-ratio" v-model.number="contextRatio" class="input input-sm w-20 bg-base-200 text-center" type="number" min="10" max="95" step="1" />
-            <span aria-hidden="true">%</span>
-          </div>
+          <label class="input w-full bg-base-200">
+            <input id="batch-context-ratio" v-model.number="contextRatio" class="grow" type="number" min="10" max="95" step="1" />
+            <span class="text-base-content/60" aria-hidden="true">%</span>
+          </label>
         </fieldset>
       </div>
       <label class="label cursor-pointer justify-start gap-3 p-0">
