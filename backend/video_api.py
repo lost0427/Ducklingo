@@ -65,19 +65,7 @@ def router(store: AuthStore, config: AuthConfig, root: Path, media: MediaStore |
         return path
 
     def store_media(user_id: int, file_id: str, filename: str, kind: str, size: int, content_type: str, source_url: str = "") -> None:
-        directory = media_dir(user_id)
-        stale = [row["id"] for row in media.list_for_user(user_id) if row["id"] != file_id]
         media.register(file_id, user_id, filename, kind, size, content_type, source_url)
-        for stale_id in stale:
-            media.delete(stale_id)
-            try:
-                archive = json.loads((directory / f"{stale_id}.translation.json").read_text("utf-8")).get("archive", "")
-            except (OSError, ValueError):
-                archive = ""
-            if archive:
-                (directory / Path(archive).name).unlink(missing_ok=True)
-            for path in directory.glob(f"{stale_id}.*"):
-                path.unlink(missing_ok=True)
 
     uploads_root = root / "data" / "uploads"
     if uploads_root.exists():

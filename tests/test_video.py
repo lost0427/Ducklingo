@@ -315,7 +315,7 @@ class MediaStoreTest(unittest.TestCase):
             self.assertEqual(media.list_for_user(1), [])
             self.assertEqual(client.get("/api/video/files").json(), [])
 
-    def test_new_media_replaces_previous_file(self):
+    def test_new_media_keeps_previous_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             db_path = root / "auth.db"
@@ -338,9 +338,12 @@ class MediaStoreTest(unittest.TestCase):
 
             media = MediaStore(db_path)
             rows = media.list_for_user(1)
-            self.assertEqual([row["id"] for row in rows], [second.json()["id"]])
+            self.assertEqual({row["id"] for row in rows}, {first.json()["id"], second.json()["id"]})
             user_dir = root / "data" / "uploads" / "1"
-            self.assertEqual([path.name for path in user_dir.iterdir()], [f"{second.json()['id']}.mp4"])
+            self.assertEqual(
+                sorted(path.name for path in user_dir.iterdir()),
+                sorted([f"{first.json()['id']}.mp4", f"{second.json()['id']}.mp4"]),
+            )
 
     def test_source_url_column_migrates_existing_database(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -390,7 +393,7 @@ class MediaStoreTest(unittest.TestCase):
                 sorted(["f" * 32 + ".mp4", "f" * 32 + ".jpg"]),
             )
 
-    def test_reconcile_collapses_to_newest_file(self):
+    def test_reconcile_keeps_all_media_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             db_path = root / "auth.db"
@@ -404,8 +407,11 @@ class MediaStoreTest(unittest.TestCase):
 
             media = MediaStore(db_path)
             rows = media.list_for_user(1)
-            self.assertEqual([row["id"] for row in rows], ["f" * 32])
-            self.assertEqual([path.name for path in user_dir.iterdir()], ["f" * 32 + ".mp4"])
+            self.assertEqual(sorted(row["id"] for row in rows), ["a" * 32, "f" * 32])
+            self.assertEqual(
+                sorted(path.name for path in user_dir.iterdir()),
+                sorted(["a" * 32 + ".mp4", "f" * 32 + ".mp4"]),
+            )
 
     def test_reconcile_registers_orphans_and_drops_missing_rows(self):
         with tempfile.TemporaryDirectory() as directory:
