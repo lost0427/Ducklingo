@@ -67,6 +67,9 @@ class BatchStore:
                     updated_at TEXT NOT NULL
                 );
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(batch_items)")}
+            if "title" not in columns:
+                db.execute("ALTER TABLE batch_items ADD COLUMN title TEXT NOT NULL DEFAULT ''")
 
     def add(self, user_id: int, urls: list[str]) -> list[int]:
         stamp = _stamp()

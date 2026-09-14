@@ -12,6 +12,7 @@ def item_view(row) -> dict:
         "id": row["id"],
         "url": row["url"],
         "file_id": row["file_id"],
+        "title": row["title"],
         "status": row["status"],
         "error": row["error"],
     }

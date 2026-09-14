@@ -179,4 +179,4 @@ class PipelineScheduler:
             for path in directory.glob(f"{file_id}*"):
                 path.unlink(missing_ok=True)
             raise
-        self.batch.update(item["id"], file_id=file_id)
+        self.batch.update(item["id"], file_id=file_id, title=title or "")

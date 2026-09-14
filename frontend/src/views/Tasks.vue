@@ -215,7 +215,8 @@ watch(
       <li v-if="!items.length" class="text-sm text-base-content/60">{{ t.queueEmpty }}</li>
       <li v-for="item in items" :key="item.id" class="flex items-start gap-3 rounded-box border border-base-content/20 p-3">
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm">{{ item.url }}</p>
+          <p v-if="item.title" class="truncate text-sm font-semibold">{{ item.title }}</p>
+          <p class="truncate text-xs text-base-content/60">{{ item.url }}</p>
           <p v-if="item.error" class="break-all text-xs text-error">{{ item.error }}</p>
         </div>
         <span class="badge badge-ghost badge-sm shrink-0">{{ statusText(item.status) }}</span>

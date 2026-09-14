@@ -202,7 +202,7 @@ export function asrArchiveUrl(fileId: string) {
   return '/api/asr/archive/' + fileId
 }
 
-export type BatchItem = { id: number; url: string; file_id: string; status: string; error: string }
+export type BatchItem = { id: number; url: string; file_id: string; title: string; status: string; error: string }
 export type BatchOptions = {
   quality: string
   language: string
