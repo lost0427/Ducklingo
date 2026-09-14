@@ -464,7 +464,6 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
     <div class="space-y-4 rounded-box border border-base-content/30 p-3 sm:p-4">
       <p v-if="!currentFile" class="text-sm text-base-content/60">{{ t.needMediaFirst }}</p>
       <template v-else>
-        <p class="truncate text-sm font-semibold">{{ displayName }}</p>
         <fieldset class="fieldset">
           <label class="label p-0 text-sm font-semibold" for="asr-language">{{ t.asrLanguage }}</label>
           <input id="asr-language" v-model="asrLanguage" class="input w-full bg-base-200" :disabled="asrRunning" />
