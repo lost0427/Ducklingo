@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   addBatch,
   asrArchiveUrl,
@@ -50,8 +50,11 @@ const statusText = (status: string) =>
     cancelled: t.value.asrCancelled,
   })[status] ?? status
 
+const saved = ref(false)
 let timer: number | undefined
 let optionsLoaded = false
+let saveTimer: number | undefined
+let savedTimer: number | undefined
 
 async function load() {
   try {
@@ -63,6 +66,7 @@ async function load() {
       contextPreset.value = CONTEXT_PRESETS.includes(preset) ? preset : 'custom'
       customContextWindow.value = contextPreset.value === 'custom' ? preset : ''
       contextRatio.value = Math.round(Number(state.options.max_context_ratio) * 100)
+      await nextTick()
       optionsLoaded = true
     }
   } catch (err) {
@@ -79,17 +83,19 @@ function applyContextOptions() {
   return true
 }
 
-async function saveOptions() {
-  error.value = ''
-  if (!applyContextOptions()) {
-    error.value = t.value.invalidContextWindow
-    return
-  }
-  try {
-    await putBatchOptions(options)
-  } catch (err) {
-    error.value = errorMessage(err)
-  }
+function scheduleSave() {
+  if (!optionsLoaded || !applyContextOptions()) return
+  window.clearTimeout(saveTimer)
+  saveTimer = window.setTimeout(async () => {
+    try {
+      await putBatchOptions(options)
+      saved.value = true
+      window.clearTimeout(savedTimer)
+      savedTimer = window.setTimeout(() => (saved.value = false), 2000)
+    } catch (err) {
+      error.value = errorMessage(err)
+    }
+  }, 400)
 }
 
 async function add() {
@@ -135,6 +141,10 @@ onMounted(() => {
 })
 onUnmounted(() => window.clearInterval(timer))
 watch(urls, (value) => localStorage.setItem(URLS_KEY, value))
+watch(
+  () => [options.quality, options.language, options.target_language, options.mode, options.reasoning_effort, contextPreset.value, customContextWindow.value, contextRatio.value],
+  () => scheduleSave(),
+)
 </script>
 
 <template>
@@ -195,8 +205,8 @@ watch(urls, (value) => localStorage.setItem(URLS_KEY, value))
         <span>{{ options.mode === 'reflect' ? t.reflectMode : t.standardMode }}</span>
       </label>
       <div class="flex flex-wrap items-center gap-2">
-        <button class="btn btn-outline" type="button" @click="saveOptions">{{ t.save }}</button>
         <button class="btn btn-primary flex-1" type="button" @click="add">{{ t.addToQueue }}</button>
+        <span v-if="saved" class="text-xs text-success">{{ t.batchSaved }}</span>
       </div>
       <p v-if="error" role="alert" class="alert alert-error"><span class="break-all">{{ error }}</span></p>
     </div>

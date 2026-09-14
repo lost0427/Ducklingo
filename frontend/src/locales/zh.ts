@@ -10,6 +10,7 @@ export default {
   tasksTitle: '批量队列',
   urlsLabel: '视频链接（一行一个）',
   addToQueue: '加入队列',
+  batchSaved: '已保存，后续阶段将使用新设置',
   queueEmpty: '队列为空',
   noValidUrls: '请输入至少一个有效链接',
   retry: '重试',

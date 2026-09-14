@@ -10,6 +10,7 @@ export default {
   tasksTitle: 'Batch queue',
   urlsLabel: 'Video URLs (one per line)',
   addToQueue: 'Add to queue',
+  batchSaved: 'Saved — later stages use the new settings',
   queueEmpty: 'Queue is empty',
   noValidUrls: 'Enter at least one valid URL',
   retry: 'Retry',
