@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { changePassword, createUser, downloadAsrModel, errorMessage, getAsrSettings, listAsrModels, listUsers, putAsrSettings, type AsrModel, type AsrService, type ManagedUser, patchUser, user } from '../api'
-import { t } from '../prefs'
+import { locale, t } from '../prefs'
 
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -21,6 +21,9 @@ const models = ref<AsrModel[]>([])
 let modelsTimer: number | undefined
 
 const EDITABLE_FIELDS = ['kind', 'base_url', 'model', 'api_flavor', 'auth_style', 'aligner']
+
+const formatDate = (value: string | null) =>
+  value ? new Date(value).toLocaleString(locale.value === 'en' ? 'en' : 'zh-CN', { dateStyle: 'short', timeStyle: 'short' }) : '—'
 
 function fillForms() {
   for (const service of ['asr', 'sentence', 'translate'] as AsrService[]) {
@@ -307,8 +310,8 @@ onMounted(() => {
               <td>
                 <input class="toggle" type="checkbox" :checked="row.is_active" @change="toggleActive(row, $event)" />
               </td>
-              <td>{{ row.created_at }}</td>
-              <td>{{ row.last_login_at }}</td>
+              <td>{{ formatDate(row.created_at) }}</td>
+              <td>{{ formatDate(row.last_login_at) }}</td>
             </tr>
           </tbody>
         </table>
