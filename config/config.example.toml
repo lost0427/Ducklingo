@@ -31,6 +31,10 @@ tokenizer_encoding = "auto"     # auto 或 tiktoken encoding 名称
 batch_retries = 2               # 单批网络/服务重试次数
 retry_delay_seconds = 0         # 重试退避基数；生产环境可设为 2
 
+[batch]
+download_concurrency = 2        # 批量下载并发上限
+llm_concurrency = 20            # 批量断句 + 翻译共用的 LLM 并发上限
+
 [upload]
 max_file_size_gb = 2
 allowed_extensions = ["mp4", "mov", "avi", "mkv", "webm", "m4v", "wav", "mp3", "flac", "m4a"]

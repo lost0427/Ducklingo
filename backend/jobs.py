@@ -98,11 +98,13 @@ class JobStore:
 
 
 class JobRunner:
-    def __init__(self, store: JobStore, cloud_concurrency: int = 4, local_concurrency: int = 1):
+    def __init__(self, store: JobStore, cloud_concurrency: int = 4, local_concurrency: int = 1, download_concurrency: int = 2, llm_concurrency: int = 20):
         self.store = store
         self.slots = {
             "cloud": asyncio.Semaphore(max(1, cloud_concurrency)),
             "local": asyncio.Semaphore(max(1, local_concurrency)),
+            "download": asyncio.Semaphore(max(1, download_concurrency)),
+            "llm": asyncio.Semaphore(max(1, llm_concurrency)),
         }
         self.tasks: dict[tuple[str, str], asyncio.Task] = {}
 
@@ -168,8 +170,12 @@ class JobRunner:
 
 def load_job_config(root: Path) -> dict:
     path = Path(root) / "config" / "config.toml"
-    asr = load_config(path).get("asr", {}) if path.exists() else {}
+    config = load_config(path) if path.exists() else {}
+    asr = config.get("asr", {})
+    batch = config.get("batch", {})
     return {
         "cloud": max(1, int(asr.get("cloud_concurrency", 4))),
         "local": max(1, int(asr.get("local_concurrency", 1))),
+        "download": max(1, int(batch.get("download_concurrency", 2))),
+        "llm": max(1, int(batch.get("llm_concurrency", 20))),
     }

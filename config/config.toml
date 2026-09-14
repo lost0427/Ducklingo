@@ -43,3 +43,7 @@ max_context_ratio = 0.8
 tokenizer_encoding = "auto"
 batch_retries = 2
 retry_delay_seconds = 0
+
+[batch]
+download_concurrency = 2
+llm_concurrency = 20

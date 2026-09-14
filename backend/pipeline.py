@@ -2,7 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from .asr import probe_duration, save_checkpoint, transcribe_cloud, transcribe_local, validate_timeline
+from .asr import load_checkpoint, probe_duration, save_checkpoint, transcribe_cloud, transcribe_local, validate_timeline
 from .config import load_config, project_path
 from .sentence import split_sentences
 from .tools import ensure_ffmpeg
@@ -21,6 +21,11 @@ def resolve_ffmpeg(root: Path) -> Path:
         tools.get("ffmpeg_release_tag", "autobuild-2026-08-25-13-06"),
         tools.get("ffmpeg_variant", "gpl"),
     )
+
+
+def load_sentences(directory: Path, file_id: str) -> list[dict]:
+    state = load_checkpoint(directory / f"{file_id}.sentences.json") or {}
+    return [sentence for batch in state.get("batches", []) for sentence in batch["sentences"]]
 
 
 async def run_asr(report, root: Path, source: Path, directory: Path, file_id: str, settings: dict, section: dict) -> list[dict]:

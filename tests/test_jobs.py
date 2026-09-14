@@ -189,7 +189,7 @@ class JobRunnerTest(unittest.TestCase):
 class LoadJobConfigTest(unittest.TestCase):
     def test_defaults_without_config(self):
         with tempfile.TemporaryDirectory() as directory:
-            self.assertEqual(load_job_config(Path(directory)), {"cloud": 4, "local": 1})
+            self.assertEqual(load_job_config(Path(directory)), {"cloud": 4, "local": 1, "download": 2, "llm": 20})
 
     def test_reads_concurrency_from_config(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -199,7 +199,7 @@ class LoadJobConfigTest(unittest.TestCase):
                 "[asr]\ncloud_concurrency = 7\nlocal_concurrency = 0\n",
                 encoding="utf-8",
             )
-            self.assertEqual(load_job_config(root), {"cloud": 7, "local": 1})
+            self.assertEqual(load_job_config(root), {"cloud": 7, "local": 1, "download": 2, "llm": 20})
 
 
 if __name__ == "__main__":

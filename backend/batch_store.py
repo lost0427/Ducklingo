@@ -90,6 +90,12 @@ class BatchStore:
         with self._db() as db:
             return db.execute("SELECT * FROM batch_items WHERE id = ?", (item_id,)).fetchone()
 
+    def active(self) -> list[sqlite3.Row]:
+        with self._db() as db:
+            return db.execute(
+                "SELECT * FROM batch_items WHERE status NOT IN ('done', 'error', 'cancelled') ORDER BY id"
+            ).fetchall()
+
     def update(self, item_id: int, **fields) -> None:
         if not fields:
             return
