@@ -210,7 +210,7 @@ onMounted(() => {
             <fieldset class="fieldset">
               <label class="label p-0 text-sm font-semibold" for="asr-model-select">{{ t.model }}</label>
               <select id="asr-model-select" v-model="forms.asr.model" class="select w-full bg-base-200">
-                <option value=""></option>
+                <option value="">{{ t.none }}</option>
                 <option v-for="model in models.filter((m) => m.kind === 'asr' && m.installed)" :key="model.id" :value="model.id">
                   {{ model.name }}
                 </option>
@@ -219,7 +219,7 @@ onMounted(() => {
             <fieldset class="fieldset">
               <label class="label p-0 text-sm font-semibold" for="asr-aligner">{{ t.aligner }}</label>
               <select id="asr-aligner" v-model="forms.asr.aligner" class="select w-full bg-base-200">
-                <option value=""></option>
+                <option value="">{{ t.none }}</option>
                 <option v-for="model in models.filter((m) => m.kind === 'aligner' && m.installed)" :key="model.id" :value="model.id">
                   {{ model.name }}
                 </option>

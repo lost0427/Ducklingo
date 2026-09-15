@@ -24,6 +24,7 @@ export default {
   currentPassword: '当前密码',
   newPassword: '新密码',
   save: '保存',
+  none: '无',
   users: '账号管理',
   createUser: '创建用户',
   role: '角色',

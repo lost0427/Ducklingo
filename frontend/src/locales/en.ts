@@ -24,6 +24,7 @@ export default {
   currentPassword: 'Current password',
   newPassword: 'New password',
   save: 'Save',
+  none: 'None',
   users: 'Accounts',
   createUser: 'Create user',
   role: 'Role',
