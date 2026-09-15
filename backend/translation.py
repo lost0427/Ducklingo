@@ -362,13 +362,7 @@ async def translate_sentences(
         "prompt_hash": prompt_hash(mode),
     }
     state = load_checkpoint(checkpoint)
-    if state and "translations" not in state:
-        state["translations"] = {
-            key: value
-            for batch in state.get("batches", [])
-            for key, value in (batch.get("translations") or batch.get("results") or {}).items()
-        }
-    if not state or any(state.get(key) != value for key, value in hard.items()):
+    if not state or "translations" not in state or any(state.get(key) != value for key, value in hard.items()):
         state = {**hard, "translations": {}}
     state.update({
         "source_subtitle_hash": source_hash,
