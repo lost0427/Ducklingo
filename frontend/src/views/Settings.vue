@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { changePassword, createUser, downloadAsrModel, errorMessage, getAsrSettings, listAsrModels, listUsers, putAsrSettings, type AsrModel, type AsrService, type ManagedUser, patchUser, user } from '../api'
+import { nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { changePassword, createUser, downloadAsrModel, errorMessage, getAsrSettings, listBatch, listAsrModels, listUsers, putAsrSettings, putBatchOptions, type AsrModel, type AsrService, type BatchOptions, type ManagedUser, patchUser, user } from '../api'
 import { locale, t } from '../prefs'
+import { CONTEXT_PRESETS, DEFAULT_TRANSCRIBE } from '../transcribe'
 
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -19,6 +20,14 @@ const forms = reactive<Record<AsrService, Record<string, string>>>({ asr: {}, se
 const saved = ref('')
 const models = ref<AsrModel[]>([])
 let modelsTimer: number | undefined
+const transcribe = reactive<BatchOptions>({ ...DEFAULT_TRANSCRIBE })
+const transcribeMsg = ref('')
+const contextPreset = ref('131072')
+const customContextWindow = ref('')
+const contextRatio = ref(80)
+let transcribeLoaded = false
+let transcribeSaveTimer: number | undefined
+let transcribeSavedTimer: number | undefined
 
 const EDITABLE_FIELDS = ['kind', 'base_url', 'model', 'api_flavor', 'auth_style', 'aligner']
 
@@ -91,6 +100,57 @@ async function loadUsers() {
   users.value = await listUsers()
 }
 
+async function loadTranscribe() {
+  try {
+    Object.assign(transcribe, (await listBatch()).options)
+    const preset = String(transcribe.context_window_tokens)
+    contextPreset.value = CONTEXT_PRESETS.includes(preset) ? preset : 'custom'
+    customContextWindow.value = contextPreset.value === 'custom' ? preset : ''
+    contextRatio.value = Math.round(Number(transcribe.max_context_ratio) * 100)
+    await nextTick()
+    transcribeLoaded = true
+  } catch {
+    error.value = t.value.settingsLoadFailed
+  }
+}
+
+function setTranscribeMode(event: Event) {
+  transcribe.mode = (event.target as HTMLInputElement).checked ? 'reflect' : 'standard'
+}
+
+function scheduleSaveTranscribe() {
+  if (!transcribeLoaded) return
+  if (contextPreset.value === 'custom' && (!Number.isInteger(Number(customContextWindow.value)) || Number(customContextWindow.value) < 1)) {
+    error.value = t.value.invalidContextWindow
+    return
+  }
+  window.clearTimeout(transcribeSaveTimer)
+  transcribeSaveTimer = window.setTimeout(async () => {
+    transcribe.context_window_tokens = contextPreset.value === 'custom' ? customContextWindow.value : contextPreset.value
+    transcribe.max_context_ratio = String(Math.min(95, Math.max(10, Math.round(contextRatio.value))) / 100)
+    try {
+      await putBatchOptions({
+        language: transcribe.language,
+        target_language: transcribe.target_language,
+        mode: transcribe.mode,
+        reasoning_effort: transcribe.reasoning_effort,
+        context_window_tokens: transcribe.context_window_tokens,
+        max_context_ratio: transcribe.max_context_ratio,
+      })
+      transcribeMsg.value = t.value.saveOk
+      window.clearTimeout(transcribeSavedTimer)
+      transcribeSavedTimer = window.setTimeout(() => (transcribeMsg.value = ''), 2000)
+    } catch (err) {
+      error.value = errorMessage(err)
+    }
+  }, 400)
+}
+
+watch(
+  () => [transcribe.language, transcribe.target_language, transcribe.mode, transcribe.reasoning_effort, contextPreset.value, customContextWindow.value, contextRatio.value],
+  () => scheduleSaveTranscribe(),
+)
+
 async function savePassword() {
   error.value = ''
   passwordMsg.value = ''
@@ -134,6 +194,7 @@ onMounted(() => {
   void loadSettings()
   void loadModels()
   void loadUsers()
+  void loadTranscribe()
 })
 </script>
 
@@ -141,6 +202,54 @@ onMounted(() => {
   <div class="flex flex-col gap-6">
     <h1 class="text-xl">{{ t.settings }}</h1>
     <p v-if="error" class="text-error">{{ error }}</p>
+
+    <section class="flex flex-col gap-3">
+      <div class="flex items-center gap-3">
+        <h2 class="text-lg">{{ t.transcribeDefaults }}</h2>
+        <span v-if="transcribeMsg" class="text-sm text-success">{{ transcribeMsg }}</span>
+      </div>
+      <div class="space-y-3 rounded-box border border-base-content/30 p-4">
+        <fieldset class="fieldset">
+          <label class="label p-0 text-sm font-semibold" for="default-language">{{ t.asrLanguage }}</label>
+          <input id="default-language" v-model="transcribe.language" class="input w-full bg-base-200" />
+          <p class="whitespace-pre-line text-xs text-base-content/60">{{ t.asrLanguageHint }}</p>
+        </fieldset>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="default-target">{{ t.targetLanguage }}</label>
+            <input id="default-target" v-model="transcribe.target_language" class="input w-full bg-base-200" />
+          </fieldset>
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="default-reasoning">{{ t.reasoningEffort }}</label>
+            <select id="default-reasoning" v-model="transcribe.reasoning_effort" class="select w-full bg-base-200">
+              <option value="off">{{ t.reasoningOff }}</option>
+              <option value="low">{{ t.reasoningLow }}</option>
+              <option value="medium">{{ t.reasoningMedium }}</option>
+              <option value="high">{{ t.reasoningHigh }}</option>
+            </select>
+          </fieldset>
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="default-context">{{ t.contextWindow }}</label>
+            <select id="default-context" v-model="contextPreset" class="select w-full bg-base-200">
+              <option v-for="preset in CONTEXT_PRESETS" :key="preset" :value="preset">{{ Number(preset) / 1024 }}K</option>
+              <option value="custom">{{ t.custom }}</option>
+            </select>
+            <input v-if="contextPreset === 'custom'" v-model="customContextWindow" class="input input-sm mt-1 w-full bg-base-200" type="number" min="1" :placeholder="t.customContextHint" />
+          </fieldset>
+          <fieldset class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="default-ratio">{{ t.contextRatio }}</label>
+            <label class="input w-full bg-base-200">
+              <input id="default-ratio" v-model.number="contextRatio" class="grow" type="number" min="10" max="95" step="1" />
+              <span class="text-base-content/60" aria-hidden="true">%</span>
+            </label>
+          </fieldset>
+        </div>
+        <label class="label cursor-pointer justify-start gap-3 p-0">
+          <input class="toggle toggle-primary" type="checkbox" :checked="transcribe.mode === 'reflect'" @change="setTranscribeMode" />
+          <span>{{ transcribe.mode === 'reflect' ? t.reflectMode : t.standardMode }}</span>
+        </label>
+      </div>
+    </section>
 
     <form class="max-w-sm" @submit.prevent="savePassword">
       <fieldset class="fieldset">

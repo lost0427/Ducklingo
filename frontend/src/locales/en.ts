@@ -62,6 +62,8 @@ export default {
   mediaLoadFailed: 'Could not load the media list. Try again later.',
   browseFiles: 'Browse files',
   transcribe: 'Transcribe',
+  transcribeDefaults: 'Transcribe settings',
+  transcribeEdit: 'Change',
   needMediaFirst: 'Download or upload a video above first',
   asrLanguage: 'Audio language (optional)',
   asrLanguageHint: 'Common: zh Chinese · en English · ja Japanese · ko Korean · pt Portuguese · de German · es Spanish · fr French\nleave empty to auto-detect',

@@ -62,6 +62,8 @@ export default {
   mediaLoadFailed: '媒体列表读取失败，请稍后重试',
   browseFiles: '选择文件',
   transcribe: '转写',
+  transcribeDefaults: '转写默认值',
+  transcribeEdit: '修改',
   needMediaFirst: '请先在上方下载或上传视频',
   asrLanguage: '音频语言（可选）',
   asrLanguageHint: '常用：zh 中文 · en 英语 · ja 日语 · ko 韩语 · pt 葡萄牙语 · de 德语 · es 西班牙语 · fr 法语\n留空自动检测',

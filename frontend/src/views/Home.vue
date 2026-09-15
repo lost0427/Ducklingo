@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { ArrowDownTrayIcon, CloudArrowUpIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import {
   asrStatus,
@@ -9,17 +10,20 @@ import {
   downloadVideo,
   errorMessage,
   getUploadConfig,
+  listBatch,
   listMediaFiles,
   mediaFileUrl,
   resetAsr,
   startAsr,
   uploadVideo,
+  type BatchOptions,
   type JobStatus,
   type MediaFile,
   type UploadConfig,
   type VideoQuality,
 } from '../api'
 import { t } from '../prefs'
+import { DEFAULT_TRANSCRIBE, transcribeSummary } from '../transcribe'
 
 const url = ref('')
 const quality = ref<VideoQuality>('1080')
@@ -36,13 +40,8 @@ const coverFailed = ref(false)
 let uploadTask: ReturnType<typeof uploadVideo> | null = null
 
 const job = ref<JobStatus | null>(null)
-const asrLanguage = ref('')
-const targetLanguage = ref('简体中文')
-const translationMode = ref<'standard' | 'reflect'>('standard')
-const reasoningEffort = ref<'off' | 'low' | 'medium' | 'high'>('off')
-const contextPreset = ref('131072')
-const customContextWindow = ref('')
-const contextRatio = ref(80)
+const transcribe = reactive<BatchOptions>({ ...DEFAULT_TRANSCRIBE })
+const transcribeText = computed(() => transcribeSummary(transcribe, t.value))
 const asrBusy = ref(false)
 let asrTimer: number | undefined
 
@@ -63,17 +62,11 @@ const asrStageText = computed(() => {
   return stages[status.stage] ?? t.value.asrStageTranscribe
 })
 const asrResumable = computed(() => ['error', 'cancelled'].includes(job.value?.status ?? ''))
-const contextWindow = computed(() => contextPreset.value === 'custom' ? Number(customContextWindow.value) : Number(contextPreset.value))
 const translationProgress = computed(() => {
   const completed = job.value?.completed_batches ?? 0
   const total = job.value?.total_batches ?? 0
   return total ? `${completed}/${total}` : ''
 })
-
-function normalizeContextRatio() {
-  const ratio = Number(contextRatio.value)
-  contextRatio.value = Number.isFinite(ratio) ? Math.min(95, Math.max(10, Math.round(ratio))) : 80
-}
 
 const qualities: { value: VideoQuality; label: keyof typeof t.value }[] = [
   { value: 'best', label: 'qualityBest' },
@@ -245,36 +238,28 @@ async function refreshAsr() {
     return
   }
   job.value = await asrStatus(currentFile.value.id).catch(() => null)
-  if (job.value?.target_language) {
-    targetLanguage.value = job.value.target_language
-    translationMode.value = job.value.mode
-    reasoningEffort.value = job.value.reasoning_effort
-    const preset = String(job.value.context_window_tokens)
-    contextPreset.value = ['32768', '65536', '131072', '262144', '524288', '1048576'].includes(preset) ? preset : 'custom'
-    customContextWindow.value = contextPreset.value === 'custom' ? preset : ''
-    contextRatio.value = Math.round(job.value.max_context_ratio * 100)
-  }
 }
 
 async function startTranscribe() {
   if (!currentFile.value) return
-  if (!targetLanguage.value.trim()) {
+  if (!transcribe.target_language.trim()) {
     error.value = t.value.targetLanguageRequired
     return
   }
-  if (!Number.isInteger(contextWindow.value) || contextWindow.value < 1) {
+  const tokens = Number(transcribe.context_window_tokens)
+  if (!Number.isInteger(tokens) || tokens < 1) {
     error.value = t.value.invalidContextWindow
     return
   }
   asrBusy.value = true
   error.value = ''
   try {
-    await startAsr(currentFile.value.id, asrLanguage.value || undefined, {
-      target_language: targetLanguage.value.trim(),
-      reflect: translationMode.value === 'reflect',
-      reasoning_effort: reasoningEffort.value,
-      context_window_tokens: contextWindow.value,
-      max_context_ratio: contextRatio.value / 100,
+    await startAsr(currentFile.value.id, transcribe.language || undefined, {
+      target_language: transcribe.target_language.trim(),
+      reflect: transcribe.mode === 'reflect',
+      reasoning_effort: transcribe.reasoning_effort,
+      context_window_tokens: tokens,
+      max_context_ratio: Number(transcribe.max_context_ratio),
     })
     await refreshAsr()
   } catch (err) {
@@ -282,10 +267,6 @@ async function startTranscribe() {
   } finally {
     asrBusy.value = false
   }
-}
-
-function setTranslationMode(event: Event) {
-  translationMode.value = (event.target as HTMLInputElement).checked ? 'reflect' : 'standard'
 }
 
 async function cancelTranscribe() {
@@ -313,6 +294,9 @@ onMounted(() => {
     .then((config) => (uploadConfig.value = config))
     .catch(() => (error.value = t.value.uploadConfigFailed))
   void refreshFiles()
+  listBatch()
+    .then((state) => Object.assign(transcribe, state.options))
+    .catch(() => {})
   asrTimer = window.setInterval(() => {
     if (asrRunning.value) void refreshAsr()
   }, 2000)
@@ -464,54 +448,10 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
     <div class="space-y-4 rounded-box border border-base-content/30 p-3 sm:p-4">
       <p v-if="!currentFile" class="text-sm text-base-content/60">{{ t.needMediaFirst }}</p>
       <template v-else>
-        <fieldset class="fieldset">
-          <label class="label p-0 text-sm font-semibold" for="asr-language">{{ t.asrLanguage }}</label>
-          <input id="asr-language" v-model="asrLanguage" class="input w-full bg-base-200" :disabled="asrRunning" />
-          <p class="whitespace-pre-line text-xs text-base-content/60">{{ t.asrLanguageHint }}</p>
-        </fieldset>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <fieldset class="fieldset">
-            <label class="label p-0 text-sm font-semibold" for="target-language">{{ t.targetLanguage }}</label>
-            <input id="target-language" v-model="targetLanguage" class="input w-full bg-base-200" :disabled="asrRunning" required />
-          </fieldset>
-          <fieldset class="fieldset">
-            <legend class="fieldset-legend">{{ t.translationMode }}</legend>
-            <label class="label cursor-pointer justify-start gap-3">
-              <input class="toggle toggle-primary" type="checkbox" :checked="translationMode === 'reflect'" :disabled="asrRunning" @change="setTranslationMode" />
-              <span>{{ translationMode === 'reflect' ? t.reflectMode : t.standardMode }}</span>
-            </label>
-          </fieldset>
+        <div class="flex flex-wrap items-center justify-between gap-2 rounded-field bg-base-200 p-3 text-sm">
+          <span class="min-w-0 break-words">{{ transcribeText }}</span>
+          <RouterLink to="/settings" class="link link-primary shrink-0">{{ t.transcribeEdit }}</RouterLink>
         </div>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <fieldset class="fieldset">
-            <label class="label p-0 text-sm font-semibold" for="reasoning-effort">{{ t.reasoningEffort }}</label>
-            <select id="reasoning-effort" v-model="reasoningEffort" class="select w-full bg-base-200" :disabled="asrRunning">
-              <option value="off">{{ t.reasoningOff }}</option>
-              <option value="low">{{ t.reasoningLow }}</option>
-              <option value="medium">{{ t.reasoningMedium }}</option>
-              <option value="high">{{ t.reasoningHigh }}</option>
-            </select>
-          </fieldset>
-          <fieldset class="fieldset">
-            <label class="label p-0 text-sm font-semibold" for="context-window">{{ t.contextWindow }}</label>
-            <select id="context-window" v-model="contextPreset" class="select w-full bg-base-200" :disabled="asrRunning">
-              <option value="32768">32K</option><option value="65536">64K</option><option value="131072">128K</option>
-              <option value="262144">256K</option><option value="524288">512K</option><option value="1048576">1M</option>
-              <option value="custom">{{ t.custom }}</option>
-            </select>
-            <input v-if="contextPreset === 'custom'" v-model="customContextWindow" class="input input-sm mt-1 w-full bg-base-200" type="number" min="1" :placeholder="t.customContextHint" :disabled="asrRunning" required />
-          </fieldset>
-        </div>
-        <fieldset class="fieldset">
-          <label class="label p-0 text-sm font-semibold" for="context-ratio">{{ t.contextRatio }}</label>
-          <div class="flex items-center gap-3">
-            <input id="context-ratio" v-model.number="contextRatio" class="range range-primary range-xs min-w-0 flex-1 [--range-bg:transparent] [--range-fill:0] [&::-moz-range-track]:border [&::-moz-range-track]:border-primary [&::-webkit-slider-runnable-track]:border [&::-webkit-slider-runnable-track]:border-primary" type="range" min="10" max="95" step="1" :disabled="asrRunning" />
-            <div class="flex items-center gap-1">
-              <input id="context-ratio-value" v-model.number="contextRatio" class="input input-sm w-16 bg-base-200 text-center" type="number" min="10" max="95" step="1" :disabled="asrRunning" :aria-label="t.contextRatio" @change="normalizeContextRatio" />
-              <span aria-hidden="true">%</span>
-            </div>
-          </div>
-        </fieldset>
         <p class="flex items-center gap-2 text-sm">
           <span v-if="asrRunning" class="loading loading-spinner loading-sm" aria-hidden="true"></span>
           <span :class="job?.status === 'error' && 'text-error'">{{ asrStageText }}</span>
