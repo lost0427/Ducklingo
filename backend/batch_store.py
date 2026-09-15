@@ -113,14 +113,13 @@ class BatchStore:
         with self._db() as db:
             db.execute("DELETE FROM batch_items WHERE id = ?", (item_id,))
 
-    def resume_inflight(self) -> int:
+    def resume_inflight(self) -> None:
         with self._db() as db:
-            cursor = db.execute(
+            db.execute(
                 f"UPDATE batch_items SET status = 'pending', updated_at = ?"
                 f" WHERE status IN ({', '.join('?' for _ in ACTIVE_STATUSES)})",
                 (_stamp(), *ACTIVE_STATUSES),
             )
-            return cursor.rowcount
 
     def options(self, user_id: int) -> dict:
         with self._db() as db:

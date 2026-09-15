@@ -66,7 +66,7 @@ def router(store, config, root, media: MediaStore, settings: SettingsStore, batc
         user = current(ducklingo_session)
         check_csrf(request, ducklingo_session, request.headers.get("x-csrf-token"), request.headers.get("origin"))
         own(user["id"], item_id)
-        await scheduler.retry(item_id)
+        scheduler.retry(item_id)
         return {"ok": True}
 
     @api.post("/{item_id}/cancel")

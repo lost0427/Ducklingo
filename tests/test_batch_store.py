@@ -14,7 +14,7 @@ class BatchStoreTest(unittest.TestCase):
 
             store.update(ids[0], status="asr", file_id="f" * 32)
             self.assertEqual(store.list_for_user(1)[0]["file_id"], "f" * 32)
-            self.assertEqual(store.resume_inflight(), 1)
+            store.resume_inflight()
             self.assertEqual(store.list_for_user(1)[0]["status"], "pending")
 
             self.assertEqual(store.options(1), DEFAULT_OPTIONS)

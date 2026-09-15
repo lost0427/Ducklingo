@@ -36,7 +36,7 @@ class PipelineScheduler:
     def submit(self, item_id: int) -> None:
         self._spawn(item_id)
 
-    async def retry(self, item_id: int) -> None:
+    def retry(self, item_id: int) -> None:
         self.batch.update(item_id, status="pending", error="")
         self._spawn(item_id)
 
