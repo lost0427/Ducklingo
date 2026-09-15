@@ -36,13 +36,13 @@ def join_text(group: list[dict]) -> str:
     return CJK_RUN.sub("", " ".join(w["text"] for w in group))
 
 
-def apply_breaks(words: list[dict], marked: str) -> list[dict]:
-    sentences, current = [], []
+def break_groups(words: list[dict], marked: str) -> list[list[dict]]:
+    groups, current = [], []
     index = 0
     for token in marked.replace("<br>", " <br> ").split():
         if token == "<br>":
             if current:
-                sentences.append(current)
+                groups.append(current)
                 current = []
             continue
         if index >= len(words) or token != words[index]["text"]:
@@ -50,24 +50,41 @@ def apply_breaks(words: list[dict], marked: str) -> list[dict]:
         current.append(words[index])
         index += 1
     if current:
-        sentences.append(current)
-    if index != len(words) or not sentences:
+        groups.append(current)
+    if index != len(words) or not groups:
         raise ValueError("word sequence mismatch")
-    return [
-        {"text": join_text(group), "start": group[0]["start"], "end": group[-1]["end"]}
-        for group in sentences
-    ]
+    return groups
+
+
+def render(group: list[dict]) -> dict:
+    return {"text": join_text(group), "start": group[0]["start"], "end": group[-1]["end"]}
+
+
+def apply_breaks(words: list[dict], marked: str) -> list[dict]:
+    return [render(group) for group in break_groups(words, marked)]
+
+
+def _length_limit(text: str, config: dict) -> tuple[int, int]:
+    length = len(re.sub(r"\s+", "", text))
+    limit = int(config.get("max_chars_cjk", 21)) if CJK_CHAR.search(text) else int(config.get("max_chars_latin", 42))
+    return length, limit
 
 
 def validate_lengths(sentences: list[dict], config: dict) -> list[dict]:
-    latin = int(config.get("max_chars_latin", 42))
-    cjk = int(config.get("max_chars_cjk", 21))
     for sentence in sentences:
-        length = len(re.sub(r"\s+", "", sentence["text"]))
-        limit = cjk if CJK_CHAR.search(sentence["text"]) else latin
+        length, limit = _length_limit(sentence["text"], config)
         if length > limit:
-            raise ValueError(f"sentence too long: {length}>{limit}")
+            raise ValueError(f"sentence too long: {length}>{limit}: {sentence['text'][:80]}")
     return sentences
+
+
+def _limit_exceeded(group: list[dict], config: dict) -> tuple[int, int] | None:
+    length, limit = _length_limit(join_text(group), config)
+    return (length, limit) if length > limit else None
+
+
+def _word_feedback() -> str:
+    return "Previous output changed the words. Only insert <br> between the given words; never add, remove, modify, or reorder words, and output the text only."
 
 
 def endpoint(settings: dict) -> str:
@@ -75,14 +92,17 @@ def endpoint(settings: dict) -> str:
     return f"{base}/chat/completions" if base.endswith("/v1") else f"{base}/v1/chat/completions"
 
 
-async def call_llm(client: httpx.AsyncClient, text: str, prompt: str, settings: dict, config: dict) -> str:
+async def call_llm(client: httpx.AsyncClient, text: str, prompt: str, settings: dict, config: dict, feedback: str = "") -> str:
     retries = int(config.get("retries", 2))
+    content = f"<text>{text}</text>"
+    if feedback:
+        content += f"\n<feedback>{feedback}</feedback>"
     body = {
         "model": settings["model"],
         "temperature": 0.1,
         "messages": [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": f"<text>{text}</text>"},
+            {"role": "user", "content": content},
         ],
     }
     response_format = config.get("response_format")
@@ -115,6 +135,27 @@ async def call_llm(client: httpx.AsyncClient, text: str, prompt: str, settings: 
     raise RuntimeError("unreachable")
 
 
+async def _mark_groups(client, words: list[dict], prompt: str, settings: dict, config: dict, feedback: str = "") -> list[list[dict]]:
+    text = " ".join(word["text"] for word in words)
+    return break_groups(words, await call_llm(client, text, prompt, settings, config, feedback))
+
+
+async def _enforce_lengths(client, groups: list[list[dict]], prompt: str, settings: dict, config: dict) -> list[list[dict]]:
+    result = []
+    for group in groups:
+        exceeded = _limit_exceeded(group, config) if len(group) >= 2 else None
+        if exceeded is None:
+            result.append(group)
+            continue
+        length, limit = exceeded
+        feedback = f"This sentence is too long: {length} characters, limit {limit}. Insert <br> to split it into shorter sentences. Keep every word unchanged and only add <br>."
+        sub = await _mark_groups(client, group, prompt, settings, config, feedback)
+        if any(_limit_exceeded(part, config) for part in sub):
+            raise ValueError(f"sentence too long: {length}>{limit}: {join_text(group)[:80]}")
+        result.extend(sub)
+    return result
+
+
 async def split_sentences(
     report,
     words: list[dict],
@@ -136,22 +177,24 @@ async def split_sentences(
             entry = state["batches"][i]
             if entry["done"]:
                 continue
-            text = " ".join(w["text"] for w in group)
             last_error = ""
-            for attempt in range(2):
+            groups = None
+            for feedback in ("", _word_feedback()):
                 try:
-                    marked = await call_llm(client, text, prompt, settings, config)
-                    entry["sentences"] = validate_lengths(apply_breaks(group, marked), config)
-                    last_error = ""
+                    groups = await _mark_groups(client, group, prompt, settings, config, feedback)
                     break
                 except ValueError as exc:
                     last_error = str(exc)
                 except RuntimeError as exc:
                     raise RuntimeError(f"sentence batch {i + 1}/{len(batches)} failed: {exc}") from exc
-            if last_error:
-                raise RuntimeError(
-                    f"sentence batch {i + 1}/{len(batches)} failed: {last_error}"
+            if groups is None:
+                raise RuntimeError(f"sentence batch {i + 1}/{len(batches)} failed: {last_error}")
+            try:
+                entry["sentences"] = validate_lengths(
+                    [render(g) for g in await _enforce_lengths(client, groups, prompt, settings, config)], config
                 )
+            except (ValueError, RuntimeError) as exc:
+                raise RuntimeError(f"sentence batch {i + 1}/{len(batches)} failed: {exc}") from exc
             entry["done"] = True
             save_checkpoint(checkpoint, state)
     return [sentence for batch in state["batches"] for sentence in batch["sentences"]]

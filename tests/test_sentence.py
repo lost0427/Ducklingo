@@ -132,6 +132,22 @@ class CallLlmTest(unittest.TestCase):
 
         self.assertEqual(asyncio.run(main()), "a<br>b")
 
+    def test_feedback_appended(self):
+        captured = {}
+
+        def handle(request):
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"choices": [{"message": {"content": "a<br>b"}}]})
+
+        async def main():
+            transport = httpx.MockTransport(handle)
+            settings = {"base_url": "https://llm.example/v1", "api_key": "k", "model": "m"}
+            async with httpx.AsyncClient(transport=transport) as client:
+                return await call_llm(client, "a b", "P", settings, {"retries": 0}, "too long")
+
+        self.assertEqual(asyncio.run(main()), "a<br>b")
+        self.assertEqual(captured["body"]["messages"][1]["content"], "<text>a b</text>\n<feedback>too long</feedback>")
+
     def test_retries_on_500(self):
         calls = []
 
@@ -191,7 +207,7 @@ class SplitSentencesTest(unittest.TestCase):
                 }), "utf-8")
                 calls = []
 
-                async def fake_call(client, text, prompt, settings, config):
+                async def fake_call(client, text, prompt, settings, config, feedback=""):
                     calls.append(text)
                     return "runs fast"
 
@@ -210,7 +226,7 @@ class SplitSentencesTest(unittest.TestCase):
                 checkpoint = Path(directory) / "s.json"
                 attempts = []
 
-                async def fake_call(client, text, prompt, settings, config):
+                async def fake_call(client, text, prompt, settings, config, feedback=""):
                     attempts.append(1)
                     return "the quick brown fox runs fastly"
 
@@ -227,22 +243,46 @@ class SplitSentencesTest(unittest.TestCase):
         async def main():
             with tempfile.TemporaryDirectory() as directory:
                 checkpoint = Path(directory) / "s.json"
+                words = [{"text": "a" * 30, "start": 0.0, "end": 1.0}, {"text": "a" * 30, "start": 1.0, "end": 2.0}]
                 attempts = []
 
-                async def fake_call(client, text, prompt, settings, config):
-                    attempts.append(1)
-                    return "a" * 43
+                async def fake_call(client, text, prompt, settings, config, feedback=""):
+                    attempts.append(feedback)
+                    return " ".join(word["text"] for word in words)
 
                 with patch("backend.sentence.call_llm", fake_call):
-                    with self.assertRaisesRegex(RuntimeError, r"sentence too long: 43>42"):
+                    with self.assertRaisesRegex(RuntimeError, r"sentence too long: 60>42"):
                         await split_sentences(
                             lambda s: None,
-                            [{"text": "a" * 43, "start": 0.0, "end": 1.0}],
+                            words,
                             {},
                             {"max_chars_latin": 42},
                             checkpoint,
                         )
                 self.assertEqual(len(attempts), 2)
+                self.assertEqual(attempts[0], "")
+                self.assertTrue(attempts[1])
+
+        asyncio.run(main())
+
+    def test_length_feedback_retry_recovers(self):
+        async def main():
+            with tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "s.json"
+                words = [{"text": "a" * 30, "start": 0.0, "end": 1.0}, {"text": "a" * 30, "start": 1.0, "end": 2.0}]
+                attempts = []
+
+                async def fake_call(client, text, prompt, settings, config, feedback=""):
+                    attempts.append(feedback)
+                    if len(attempts) == 1:
+                        return " ".join(word["text"] for word in words)
+                    return "a" * 30 + "<br>" + "a" * 30
+
+                with patch("backend.sentence.call_llm", fake_call):
+                    sentences = await split_sentences(lambda s: None, words, {}, {"max_chars_latin": 42}, checkpoint)
+                self.assertEqual([sentence["text"] for sentence in sentences], ["a" * 30, "a" * 30])
+                self.assertEqual(attempts[0], "")
+                self.assertTrue(attempts[1])
 
         asyncio.run(main())
 
@@ -251,7 +291,7 @@ class SplitSentencesTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 checkpoint = Path(directory) / "s.json"
 
-                async def fake_call(client, text, prompt, settings, config):
+                async def fake_call(client, text, prompt, settings, config, feedback=""):
                     raise RuntimeError("LLM call failed: HTTP 429")
 
                 config = {"batch_words": 4}
