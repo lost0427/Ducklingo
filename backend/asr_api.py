@@ -9,7 +9,7 @@ from .asr import kill_local
 from .auth.api import guards
 from .media_store import FILE_ID_PATTERN
 from .models import download_model, list_models, load_registry, snapshot_status
-from .pipeline import load_section, run_pipeline
+from .pipeline import load_section, run_asr, run_sentence, run_translate
 from .settings_store import FIELDS, GLOBAL, SERVICES, SettingsStore
 from .jobs import JobRunner
 
@@ -185,24 +185,25 @@ def router(
         directory = media_dir(user["id"])
 
         async def work(report):
-            await run_pipeline(
-                report,
-                root,
-                source,
-                directory,
-                file_id,
-                user["id"],
-                asr_settings=asr_settings,
-                asr_section=asr_section,
-                sentence_settings=sentence_settings,
-                sentence_section=sentence_section,
-                translate_settings=translate_settings,
-                translate_section=translate_section,
-                target_language=target_language,
-                mode=mode,
-                reasoning_effort=reasoning_effort,
-                has_target=has_target,
-            )
+            timeout = float(asr_section.get("timeout_seconds", 300))
+            words = await run_asr(report, root, source, directory, file_id, asr_settings, asr_section)
+            sentences = await run_sentence(report, directory, file_id, words, sentence_settings, sentence_section, timeout)
+            if has_target:
+                await run_translate(
+                    report,
+                    root,
+                    source,
+                    directory,
+                    file_id,
+                    user["id"],
+                    sentences,
+                    translate_settings,
+                    translate_section,
+                    target_language,
+                    mode,
+                    reasoning_effort,
+                    float(translate_section.get("timeout_seconds", timeout)),
+                )
 
         runner.enqueue(file_id, "asr", user["id"], asr_settings["kind"], work, username=user["username"])
         return {"ok": True}
