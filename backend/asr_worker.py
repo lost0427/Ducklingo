@@ -15,7 +15,7 @@ def read_pcm(path: Path) -> np.ndarray:
     return np.fromfile(path, dtype=np.float32)
 
 
-def write_metrics(output: Path, model: str, segments, words: list[dict], seconds: float, audio_seconds: float, aligner_used: bool) -> Path:
+def write_metrics(output: Path, segments, words: list[dict], seconds: float) -> Path:
     # Local-only throughput probe: tokens are a tiktoken approximation of the
     # ASR transcript, seconds covers transcribe_vad (VAD + stitched decode).
     from backend.sentence import join_text
@@ -23,17 +23,12 @@ def write_metrics(output: Path, model: str, segments, words: list[dict], seconds
 
     text = join_text(words) if words else " ".join(str(getattr(segment, "text", "")) for segment in segments)
     tokens = token_count(text) if text.strip() else 0
-    speech = sum(max(0.0, float(getattr(segment, "end", 0.0)) - float(getattr(segment, "start", 0.0))) for segment in segments)
     name = output.name.replace(".words.json", ".metrics.json") if output.name.endswith(".words.json") else output.name + ".metrics.json"
     path = output.with_name(name)
     path.write_text(json.dumps({
-        "model": model,
-        "audio_seconds": round(audio_seconds, 3),
-        "speech_seconds": round(speech, 3),
         "transcribe_seconds": round(seconds, 3),
         "tokens": tokens,
         "tokens_per_second": round(tokens / seconds, 3) if seconds > 0 else 0.0,
-        "aligner_used": aligner_used,
     }, ensure_ascii=False, indent=2), "utf-8")
     return path
 
@@ -76,14 +71,12 @@ def main() -> None:
     segments = session.transcribe_vad(pcm, args.vad, **kwargs)
     seconds = time.perf_counter() - started
     words = words_from_segments(segments)
-    aligner_used = False
     if not words and args.aligner:
         text = " ".join(str(segment.text) for segment in segments)
         words = aligned_words(align_words(args.aligner, text, pcm))
-        aligner_used = True
     output = Path(args.output)
     output.write_text(json.dumps({"words": words}), "utf-8")
-    write_metrics(output, args.model, segments, words, seconds, len(pcm) / 16000, aligner_used)
+    write_metrics(output, segments, words, seconds)
     if not words:
         raise SystemExit("no word timestamps produced")
 
