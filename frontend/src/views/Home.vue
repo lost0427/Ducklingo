@@ -462,6 +462,7 @@ watch(() => currentFile.value?.id, () => void refreshAsr(), { immediate: true })
         </div>
         <div class="flex flex-wrap gap-2">
           <button
+            v-if="job?.status !== 'done'"
             class="btn btn-outline flex-1 border-base-content/80"
             type="button"
             :disabled="asrBusy || asrRunning"
