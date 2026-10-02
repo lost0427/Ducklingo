@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import re
 from functools import lru_cache
@@ -166,9 +167,10 @@ async def split_sentences(
 ) -> list[dict]:
     size = int(config.get("batch_words", 800))
     batches = batch_words(words, size)
+    source_hash = hashlib.sha256(json.dumps(words, sort_keys=True).encode()).hexdigest()
     state = load_checkpoint(checkpoint)
-    if not state or state.get("word_count") != len(words) or len(state.get("batches", [])) != len(batches):
-        state = {"word_count": len(words), "batches": [{"done": False, "sentences": []} for _ in batches]}
+    if not state or state.get("source_hash") != source_hash or len(state.get("batches", [])) != len(batches):
+        state = {"source_hash": source_hash, "word_count": len(words), "batches": [{"done": False, "sentences": []} for _ in batches]}
         save_checkpoint(checkpoint, state)
     prompt = system_prompt(config)
     report("sentence")

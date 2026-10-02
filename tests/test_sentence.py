@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import tempfile
 import unittest
@@ -194,11 +195,25 @@ class CallLlmTest(unittest.TestCase):
 
 
 class SplitSentencesTest(unittest.TestCase):
+    def test_changed_timestamps_invalidate_checkpoint(self):
+        async def main():
+            with tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "s.json"
+                words = [{"text": "hello", "start": 0.0, "end": 1.0}]
+                with patch("backend.sentence.call_llm", return_value="hello") as call:
+                    await split_sentences(lambda _: None, words, {}, {}, checkpoint)
+                    words[0]["end"] = 2.0
+                    result = await split_sentences(lambda _: None, words, {}, {}, checkpoint)
+                self.assertEqual(call.call_count, 2)
+                self.assertEqual(result[0]["end"], 2.0)
+        asyncio.run(main())
+
     def test_resume_skips_done_batches(self):
         async def main():
             with tempfile.TemporaryDirectory() as directory:
                 checkpoint = Path(directory) / "s.json"
                 checkpoint.write_text(json.dumps({
+                    "source_hash": hashlib.sha256(json.dumps(WORDS, sort_keys=True).encode()).hexdigest(),
                     "word_count": 6,
                     "batches": [
                         {"done": True, "sentences": [{"text": "the quick", "start": 0.0, "end": 0.2}]},
