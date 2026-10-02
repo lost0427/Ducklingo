@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .asr import has_word_timestamps
+
 
 def read_pcm(path: Path) -> np.ndarray:
     # The binding copies plain ndarrays straight through (verified: no extra
@@ -71,14 +73,14 @@ def main() -> None:
     segments = session.transcribe_vad(pcm, args.vad, **kwargs)
     seconds = time.perf_counter() - started
     words = words_from_segments(segments)
-    if not words and args.aligner:
+    if not has_word_timestamps(words) and args.aligner:
         text = " ".join(str(segment.text) for segment in segments)
         words = aligned_words(align_words(args.aligner, text, pcm))
+    if not has_word_timestamps(words):
+        raise SystemExit("no valid word timestamps produced; configure a forced aligner and retry")
     output = Path(args.output)
     output.write_text(json.dumps({"words": words}), "utf-8")
     write_metrics(output, segments, words, seconds)
-    if not words:
-        raise SystemExit("no word timestamps produced")
 
 
 if __name__ == "__main__":

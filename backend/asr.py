@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import re
 import subprocess
@@ -30,6 +31,13 @@ def build_srt(segments: list[dict]) -> str:
         f"{i}\n{format_ts(s['start'])} --> {format_ts(s['end'])}\n{s['text'].strip()}\n"
         for i, s in enumerate(segments, 1)
     )
+
+
+def has_word_timestamps(words: list[dict]) -> bool:
+    return bool(words) and all(
+        math.isfinite(w["start"]) and math.isfinite(w["end"]) and 0 <= w["start"] <= w["end"]
+        for w in words
+    ) and any(w["end"] > w["start"] for w in words)
 
 
 def validate_timeline(segments: list[dict], duration: float | None = None) -> list[dict]:
@@ -270,7 +278,7 @@ async def transcribe_local(
 ) -> list[dict]:
     checkpoint = workdir / f"{file_id}.asr.json"
     state = load_checkpoint(checkpoint)
-    if state and state.get("kind") == "local" and (words := checkpoint_words(state)):
+    if state and state.get("kind") == "local" and has_word_timestamps(words := checkpoint_words(state)):
         return words
     timeout = float(asr.get("local_timeout_seconds", 3600))
     report("extract")
@@ -304,8 +312,8 @@ async def transcribe_local(
         kill_local(file_id)
         raise
     words = json.loads(output.read_text("utf-8"))["words"]
-    if not words:
-        raise RuntimeError("local transcription produced no word timestamps")
+    if not has_word_timestamps(words):
+        raise RuntimeError("local transcription produced no valid word timestamps; configure a forced aligner")
     save_checkpoint(checkpoint, {"kind": "local", "words": words})
     return words
 

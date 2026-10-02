@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 from uuid import uuid4
 
-from .asr import checkpoint_words, load_checkpoint
+from .asr import checkpoint_words, has_word_timestamps, load_checkpoint, validate_timeline
 from .batch_store import BatchStore
 from .logging_config import get_logger
 from .media_store import MediaStore, sanitize_filename
@@ -69,7 +69,7 @@ class PipelineScheduler:
     def _archive(self, directory: Path, file_id: str) -> bool:
         state = load_checkpoint(directory / f"{file_id}.translation.json") or {}
         name = Path(state.get("archive", "")).name
-        return bool(name) and (directory / name).is_file()
+        return bool(name) and state.get("total_items", 0) > 0 and (directory / name).is_file()
 
     def next_stage(self, item) -> str | None:
         user_id = item["user_id"]
@@ -77,9 +77,10 @@ class PipelineScheduler:
         directory = self._media_dir(user_id)
         if not self._source(user_id, file_id):
             return "download"
-        if not (directory / f"{file_id}.asr.json").exists():
+        state = load_checkpoint(directory / f"{file_id}.asr.json") or {}
+        if not has_word_timestamps(checkpoint_words(state)):
             return "asr"
-        if not (directory / f"{file_id}.sentences.json").exists():
+        if not validate_timeline(load_sentences(directory, file_id)):
             return "sentence"
         if not self._archive(directory, file_id):
             return "translate"

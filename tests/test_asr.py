@@ -182,6 +182,19 @@ class LocalWorkerTest(unittest.TestCase):
 
 
 class LocalTranscriptionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_invalid_checkpoint_is_not_reused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "cached.asr.json").write_text(
+                '{"kind":"local","words":[{"text":"hello","start":0.23,"end":0.23}]}', "utf-8"
+            )
+            with patch("backend.asr.extract_audio", side_effect=RuntimeError("restarted")):
+                with self.assertRaisesRegex(RuntimeError, "restarted"):
+                    await transcribe_local(
+                        lambda _: None, root / "video.mp4", root, "cached",
+                        {"model": "model"}, {}, root / "ffmpeg", root,
+                    )
+
     async def test_complete_checkpoint_skips_transcription(self):
         words = [{"text": "done", "start": 0.0, "end": 1.0}]
         with tempfile.TemporaryDirectory() as directory:

@@ -30,17 +30,17 @@ class PipelineSchedulerTest(unittest.IsolatedAsyncioTestCase):
 
             async def fake_asr(report, scheduler_root, source, directory_, file_id, settings_, section):
                 calls.append("asr")
-                (Path(directory_) / f"{file_id}.asr.json").write_text('{"kind": "local", "words": []}', encoding="utf-8")
+                (Path(directory_) / f"{file_id}.asr.json").write_text('{"kind": "local", "words": [{"text": "hi", "start": 0, "end": 1}]}', encoding="utf-8")
 
             async def fake_sentence(report, directory_, file_id, words, settings_, section, timeout):
                 calls.append("sentence")
-                (Path(directory_) / f"{file_id}.sentences.json").write_text('{"batches": []}', encoding="utf-8")
+                (Path(directory_) / f"{file_id}.sentences.json").write_text('{"batches": [{"done": true, "sentences": [{"text": "hi", "start": 0, "end": 1}]}]}', encoding="utf-8")
 
             async def fake_translate(report, scheduler_root, source, directory_, file_id, user_id, sentences, settings_, section, target, mode, effort, timeout):
                 calls.append("translate")
                 archive = Path(directory_) / "out.zip"
                 archive.write_bytes(b"zip")
-                (Path(directory_) / f"{file_id}.translation.json").write_text(json.dumps({"archive": archive.name}), encoding="utf-8")
+                (Path(directory_) / f"{file_id}.translation.json").write_text(json.dumps({"archive": archive.name, "total_items": 1}), encoding="utf-8")
 
             item_id = batch.add(1, ["https://video"])[0]
             with patch("backend.batch_scheduler.download_from_config", fake_download), patch(

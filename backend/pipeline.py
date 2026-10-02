@@ -57,6 +57,8 @@ async def run_translate(
     ffmpeg = await asyncio.to_thread(resolve_ffmpeg, root)
     duration = await asyncio.to_thread(probe_duration, source, ffmpeg)
     sentences = validate_timeline(sentences, duration)
+    if not sentences:
+        raise RuntimeError("no valid subtitle timestamps remain; reset transcription and run with a forced aligner")
     translated = await translate_sentences(
         report,
         sentences,
