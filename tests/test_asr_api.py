@@ -52,6 +52,18 @@ class AsrApiTest(unittest.TestCase):
     def csrf(client) -> dict:
         return {"X-CSRF-Token": client.cookies.get("ducklingo_csrf")}
 
+    def test_old_empty_archive_is_not_downloadable(self):
+        file_id = "e" * 32
+        root, media, alice, _, _ = self.build({f"1/{file_id}.mp4": b"video"})
+        media.register(file_id, 1, "movie.mp4", "upload", 5, "video/mp4")
+        directory = root / "data" / "uploads" / "1"
+        (directory / "empty.zip").write_bytes(b"zip")
+        (directory / f"{file_id}.translation.json").write_text(
+            json.dumps({"total_items": 0, "translations": {}, "archive": "empty.zip"}), "utf-8"
+        )
+        self.assertFalse(alice.get(f"/api/asr/status/{file_id}").json()["has_archive"])
+        self.assertEqual(alice.get(f"/api/asr/archive/{file_id}").status_code, 404)
+
     def test_settings_roundtrip_masks_key(self):
         _, _, alice, _, admin = self.build()
         self.assertFalse(alice.get("/api/asr/settings").json()["asr"]["has_shared"])

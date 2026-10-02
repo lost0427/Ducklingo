@@ -350,6 +350,8 @@ async def translate_sentences(
         raise ValueError("reasoning_effort must be off, low, medium, or high")
     if not target_language.strip():
         raise ValueError("target_language is required")
+    if not sentences:
+        raise RuntimeError("cannot translate empty subtitles")
     item_ids = [str(sentence.get("id", i + 1)) for i, sentence in enumerate(sentences)]
     work = [{**sentence, "id": item_ids[i]} for i, sentence in enumerate(sentences)]
     source_hash = hashlib.sha256(json.dumps(sentences, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -431,6 +433,8 @@ def _srt_field(sentences: list[dict], field: str) -> str:
 
 
 def create_archive(directory: Path, sentences: list[dict]) -> Path:
+    if not sentences:
+        raise RuntimeError("cannot export empty subtitles")
     moment = datetime.now()
     stamp = moment.strftime("%Y%m%d_%H%M%S")
     archive = directory / f"{stamp}_subtitles.zip"

@@ -225,7 +225,7 @@ def router(
             "reasoning_effort": translation.get("reasoning_effort", "off") if translation else "off",
             "context_window_tokens": translation.get("context_window_tokens", 131072) if translation else 131072,
             "max_context_ratio": translation.get("max_context_ratio", 0.8) if translation else 0.8,
-            "has_archive": bool(translation and translation.get("archive") and (media_dir(user["id"]) / Path(translation["archive"]).name).is_file()),
+            "has_archive": bool(translation and translation.get("total_items", 0) > 0 and translation.get("archive") and (media_dir(user["id"]) / Path(translation["archive"]).name).is_file()),
         }
 
     @api.post("/cancel/{file_id}")
@@ -272,7 +272,7 @@ def router(
         translation = load_translation_checkpoint(directory, file_id)
         archive_name = Path(translation.get("archive", "")).name if translation else ""
         path = directory / archive_name if archive_name else None
-        if not path or not path.is_file():
+        if not path or not path.is_file() or not translation or translation.get("total_items", 0) <= 0:
             raise HTTPException(404, "Subtitle archive not found")
         return FileResponse(path, media_type="application/zip", filename=path.name)
 

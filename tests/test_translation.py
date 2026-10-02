@@ -43,6 +43,12 @@ class TranslationHelpersTest(unittest.TestCase):
 
 
 class TranslationArchiveTest(unittest.TestCase):
+    def test_empty_archive_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "empty subtitles"):
+                create_archive(Path(directory), [])
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_archive_has_four_timestamped_srt_files(self):
         with tempfile.TemporaryDirectory() as directory:
             path = create_archive(Path(directory), [{"text": "hello", "translation": "你好", "start": 0.0, "end": 1.0}])
@@ -54,6 +60,11 @@ class TranslationArchiveTest(unittest.TestCase):
 
 
 class TranslationCheckpointTest(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_translation_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "empty subtitles"):
+                await translate_sentences(lambda _: None, [], {}, {}, Path(directory) / "t.json")
+
     async def test_checkpoint_and_reasoning_effort(self):
         captured = {}
 
