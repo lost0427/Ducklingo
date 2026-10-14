@@ -16,6 +16,7 @@ const newRole = ref<'user' | 'admin'>('user')
 
 const settings = ref<Record<AsrService, { own: Record<string, string> | null; shared: Record<string, string> | null; has_shared: boolean }> | null>(null)
 const editShared = ref(false)
+const configSources = reactive<Record<AsrService, 'auto' | 'personal' | 'shared'>>({ asr: 'auto', sentence: 'auto', translate: 'auto' })
 const forms = reactive<Record<AsrService, Record<string, string>>>({ asr: {}, sentence: {}, translate: {} })
 const saved = ref('')
 const models = ref<AsrModel[]>([])
@@ -45,6 +46,10 @@ function fillForms() {
 async function loadSettings() {
   try {
     settings.value = await getAsrSettings()
+    for (const service of ['asr', 'sentence', 'translate'] as AsrService[]) {
+      const source = settings.value[service].own?.config_source
+      configSources[service] = source === 'shared' || source === 'personal' ? source : 'auto'
+    }
     fillForms()
   } catch {
     error.value = t.value.settingsLoadFailed
@@ -55,11 +60,21 @@ async function save(service: AsrService) {
   saved.value = ''
   const values = Object.fromEntries(Object.entries(forms[service]).filter(([, value]) => value !== ''))
   if (service === 'asr') values.kind = forms.asr.kind ?? ''
+  values.config_source = configSources[service]
   const scope = editShared.value && user.value?.role === 'admin' ? 'shared' : 'user'
   try {
     await putAsrSettings(service, scope, values)
     saved.value = t.value.saveOk
     await loadSettings()
+  } catch (err) {
+    error.value = errorMessage(err)
+  }
+}
+
+async function changeConfigSource(service: AsrService) {
+  try {
+    await putAsrSettings(service, 'user', { config_source: configSources[service] })
+    saved.value = t.value.saveOk
   } catch (err) {
     error.value = errorMessage(err)
   }
@@ -277,6 +292,14 @@ onMounted(() => {
       <div class="grid gap-4 lg:grid-cols-2">
         <form class="space-y-3 rounded-box border border-base-content/30 p-4" @submit.prevent="save('asr')">
           <h3 class="font-semibold">{{ t.asrServiceTitle }}</h3>
+          <fieldset v-if="user?.role !== 'admin'" class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="asr-source">{{ t.configSource }}</label>
+            <select id="asr-source" v-model="configSources.asr" class="select w-full bg-base-200" @change="changeConfigSource('asr')">
+              <option value="auto">{{ t.automaticConfig }}</option>
+              <option value="personal">{{ t.personalConfig }}</option>
+              <option value="shared" :disabled="!settings?.asr.has_shared">{{ t.adminSharedConfig }}</option>
+            </select>
+          </fieldset>
           <fieldset class="fieldset">
             <label class="label p-0 text-sm font-semibold" for="asr-kind">{{ t.serviceKind }}</label>
             <select id="asr-kind" v-model="forms.asr.kind" class="select w-full bg-base-200">
@@ -340,6 +363,14 @@ onMounted(() => {
 
         <form class="space-y-3 rounded-box border border-base-content/30 p-4" @submit.prevent="save('sentence')">
           <h3 class="font-semibold">{{ t.sentenceServiceTitle }}</h3>
+          <fieldset v-if="user?.role !== 'admin'" class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="sentence-source">{{ t.configSource }}</label>
+            <select id="sentence-source" v-model="configSources.sentence" class="select w-full bg-base-200" @change="changeConfigSource('sentence')">
+              <option value="auto">{{ t.automaticConfig }}</option>
+              <option value="personal">{{ t.personalConfig }}</option>
+              <option value="shared" :disabled="!settings?.sentence.has_shared">{{ t.adminSharedConfig }}</option>
+            </select>
+          </fieldset>
           <fieldset class="fieldset">
             <label class="label p-0 text-sm font-semibold" for="sentence-base-url">{{ t.baseUrl }}</label>
             <input id="sentence-base-url" v-model="forms.sentence.base_url" class="input w-full bg-base-200" type="url" placeholder="https://api.openai.com/v1" />
@@ -357,6 +388,14 @@ onMounted(() => {
 
         <form class="space-y-3 rounded-box border border-base-content/30 p-4" @submit.prevent="save('translate')">
           <h3 class="font-semibold">{{ t.translateServiceTitle }}</h3>
+          <fieldset v-if="user?.role !== 'admin'" class="fieldset">
+            <label class="label p-0 text-sm font-semibold" for="translate-source">{{ t.configSource }}</label>
+            <select id="translate-source" v-model="configSources.translate" class="select w-full bg-base-200" @change="changeConfigSource('translate')">
+              <option value="auto">{{ t.automaticConfig }}</option>
+              <option value="personal">{{ t.personalConfig }}</option>
+              <option value="shared" :disabled="!settings?.translate.has_shared">{{ t.adminSharedConfig }}</option>
+            </select>
+          </fieldset>
           <fieldset class="fieldset">
             <label class="label p-0 text-sm font-semibold" for="translate-base-url">{{ t.baseUrl }}</label>
             <input id="translate-base-url" v-model="forms.translate.base_url" class="input w-full bg-base-200" type="url" placeholder="https://api.openai.com/v1" />
