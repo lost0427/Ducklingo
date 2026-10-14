@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -37,6 +38,15 @@ def join_text(group: list[dict]) -> str:
     return CJK_RUN.sub("", " ".join(w["text"] for w in group))
 
 
+class WordSequenceMismatch(ValueError):
+    def __init__(self, marked: str, index: int, expected: str | None, actual: str | None):
+        super().__init__("word sequence mismatch")
+        self.marked = marked
+        self.index = index
+        self.expected = expected
+        self.actual = actual
+
+
 def break_groups(words: list[dict], marked: str) -> list[list[dict]]:
     groups, current = [], []
     index = 0
@@ -47,14 +57,44 @@ def break_groups(words: list[dict], marked: str) -> list[list[dict]]:
                 current = []
             continue
         if index >= len(words) or token != words[index]["text"]:
-            raise ValueError("word sequence mismatch")
+            expected = words[index]["text"] if index < len(words) else None
+            raise WordSequenceMismatch(marked, index, expected, token)
         current.append(words[index])
         index += 1
     if current:
         groups.append(current)
     if index != len(words) or not groups:
-        raise ValueError("word sequence mismatch")
+        expected = words[index]["text"] if index < len(words) else None
+        raise WordSequenceMismatch(marked, index, expected, None)
     return groups
+
+
+def _record_word_mismatch(
+    checkpoint: Path,
+    batch_index: int,
+    batch_count: int,
+    feedback: str,
+    exc: WordSequenceMismatch,
+) -> None:
+    path = checkpoint.with_name(f"{checkpoint.stem}.mismatches.json")
+    try:
+        entries = json.loads(path.read_text("utf-8")) if path.exists() else []
+        entries.append({
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "batch": batch_index + 1,
+            "batch_count": batch_count,
+            "feedback_retry": bool(feedback),
+            "word_index": exc.index,
+            "expected_word": exc.expected,
+            "actual_word": exc.actual,
+            "llm_text": exc.marked,
+        })
+        temp = path.with_suffix(path.suffix + ".tmp")
+        temp.write_text(json.dumps(entries[-20:], ensure_ascii=False, indent=2), "utf-8")
+        temp.replace(path)
+        log.info("sentence mismatch details saved file=%s batch=%s", path.name, batch_index + 1)
+    except (OSError, ValueError, TypeError) as save_error:
+        log.warning("could not save sentence mismatch details: %s", summarize_error(save_error))
 
 
 def render(group: list[dict]) -> dict:
@@ -136,12 +176,33 @@ async def call_llm(client: httpx.AsyncClient, text: str, prompt: str, settings: 
     raise RuntimeError("unreachable")
 
 
-async def _mark_groups(client, words: list[dict], prompt: str, settings: dict, config: dict, feedback: str = "") -> list[list[dict]]:
+async def _mark_groups(
+    client,
+    words: list[dict],
+    prompt: str,
+    settings: dict,
+    config: dict,
+    feedback: str = "",
+    on_mismatch=None,
+) -> list[list[dict]]:
     text = " ".join(word["text"] for word in words)
-    return break_groups(words, await call_llm(client, text, prompt, settings, config, feedback))
+    marked = await call_llm(client, text, prompt, settings, config, feedback)
+    try:
+        return break_groups(words, marked)
+    except WordSequenceMismatch as exc:
+        if on_mismatch:
+            on_mismatch(exc, feedback)
+        raise
 
 
-async def _enforce_lengths(client, groups: list[list[dict]], prompt: str, settings: dict, config: dict) -> list[list[dict]]:
+async def _enforce_lengths(
+    client,
+    groups: list[list[dict]],
+    prompt: str,
+    settings: dict,
+    config: dict,
+    on_mismatch=None,
+) -> list[list[dict]]:
     result = []
     for group in groups:
         exceeded = _limit_exceeded(group, config) if len(group) >= 2 else None
@@ -150,7 +211,7 @@ async def _enforce_lengths(client, groups: list[list[dict]], prompt: str, settin
             continue
         length, limit = exceeded
         feedback = f"This sentence is too long: {length} characters, limit {limit}. Insert <br> to split it into shorter sentences. Keep every word unchanged and only add <br>."
-        sub = await _mark_groups(client, group, prompt, settings, config, feedback)
+        sub = await _mark_groups(client, group, prompt, settings, config, feedback, on_mismatch)
         if any(_limit_exceeded(part, config) for part in sub):
             raise ValueError(f"sentence too long: {length}>{limit}: {join_text(group)[:80]}")
         result.extend(sub)
@@ -181,9 +242,13 @@ async def split_sentences(
                 continue
             last_error = ""
             groups = None
+
+            def record_mismatch(exc: WordSequenceMismatch, feedback: str) -> None:
+                _record_word_mismatch(checkpoint, i, len(batches), feedback, exc)
+
             for feedback in ("", _word_feedback()):
                 try:
-                    groups = await _mark_groups(client, group, prompt, settings, config, feedback)
+                    groups = await _mark_groups(client, group, prompt, settings, config, feedback, record_mismatch)
                     break
                 except ValueError as exc:
                     last_error = str(exc)
@@ -193,7 +258,7 @@ async def split_sentences(
                 raise RuntimeError(f"sentence batch {i + 1}/{len(batches)} failed: {last_error}")
             try:
                 entry["sentences"] = validate_lengths(
-                    [render(g) for g in await _enforce_lengths(client, groups, prompt, settings, config)], config
+                    [render(g) for g in await _enforce_lengths(client, groups, prompt, settings, config, record_mismatch)], config
                 )
             except (ValueError, RuntimeError) as exc:
                 raise RuntimeError(f"sentence batch {i + 1}/{len(batches)} failed: {exc}") from exc
