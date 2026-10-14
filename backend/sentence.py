@@ -47,26 +47,68 @@ class WordSequenceMismatch(ValueError):
         self.actual = actual
 
 
-def break_groups(words: list[dict], marked: str) -> list[list[dict]]:
-    groups, current = [], []
-    index = 0
+def _marked_tokens(marked: str) -> tuple[list[str], set[int]]:
+    tokens, breaks = [], set()
     for token in marked.replace("<br>", " <br> ").split():
         if token == "<br>":
-            if current:
-                groups.append(current)
-                current = []
-            continue
+            if tokens:
+                breaks.add(len(tokens))
+        else:
+            tokens.append(token)
+    return tokens, breaks
+
+
+def break_groups(words: list[dict], marked: str) -> list[list[dict]]:
+    groups, current = [], []
+    tokens, breaks = _marked_tokens(marked)
+    for index, token in enumerate(tokens):
         if index >= len(words) or token != words[index]["text"]:
             expected = words[index]["text"] if index < len(words) else None
             raise WordSequenceMismatch(marked, index, expected, token)
         current.append(words[index])
-        index += 1
+        if index + 1 in breaks:
+            groups.append(current)
+            current = []
     if current:
         groups.append(current)
-    if index != len(words) or not groups:
-        expected = words[index]["text"] if index < len(words) else None
-        raise WordSequenceMismatch(marked, index, expected, None)
+    if len(tokens) != len(words) or not groups:
+        expected = words[len(tokens)]["text"] if len(tokens) < len(words) else None
+        actual = tokens[len(words)] if len(tokens) > len(words) else None
+        raise WordSequenceMismatch(marked, min(len(tokens), len(words)), expected, actual)
     return groups
+
+
+def _repair_region(words: list[dict], marked: str) -> tuple[int, int, int, int]:
+    tokens, _ = _marked_tokens(marked)
+    prefix = 0
+    while prefix < min(len(words), len(tokens)) and words[prefix]["text"] == tokens[prefix]:
+        prefix += 1
+    suffix = 0
+    while (
+        suffix < min(len(words) - prefix, len(tokens) - prefix)
+        and words[len(words) - suffix - 1]["text"] == tokens[len(tokens) - suffix - 1]
+    ):
+        suffix += 1
+
+    # A little matching context gives the model enough text to make a useful cut.
+    context = 12
+    start = max(0, prefix - context)
+    end = min(len(words), len(words) - suffix + context)
+    token_start = max(0, prefix - context)
+    token_end = min(len(tokens), len(tokens) - suffix + context)
+    if start == end:
+        start = max(0, start - 1)
+        end = min(len(words), end + 1)
+    return start, end, token_start, token_end
+
+
+def _marked_with_breaks(words: list[dict], breaks: set[int]) -> str:
+    parts = []
+    for index, word in enumerate(words):
+        if index:
+            parts.append("<br>" if index in breaks else " ")
+        parts.append(word["text"])
+    return " ".join(parts)
 
 
 def _record_word_mismatch(
@@ -192,7 +234,35 @@ async def _mark_groups(
     except WordSequenceMismatch as exc:
         if on_mismatch:
             on_mismatch(exc, feedback)
-        raise
+        start, end, token_start, token_end = _repair_region(words, marked)
+        repair_words = words[start:end]
+        if not repair_words:
+            raise
+        repair_feedback = (
+            "The previous output changed or omitted words. Re-segment only this exact excerpt. "
+            "Keep every word unchanged and in order; only insert <br>. Output the excerpt text only."
+        )
+        repair_text = " ".join(word["text"] for word in repair_words)
+        repair_marked = await call_llm(
+            client, repair_text, prompt, settings, config, repair_feedback
+        )
+        try:
+            break_groups(repair_words, repair_marked)
+        except WordSequenceMismatch as repair_exc:
+            if on_mismatch:
+                on_mismatch(repair_exc, repair_feedback)
+            raise
+
+        _, original_breaks = _marked_tokens(marked)
+        _, repair_breaks = _marked_tokens(repair_marked)
+        offset = len(words) - len(_marked_tokens(marked)[0])
+        breaks = {position for position in original_breaks if position <= token_start}
+        breaks.update(position + offset for position in original_breaks if position >= token_end)
+        breaks.update(start + position for position in repair_breaks)
+        repaired_marked = _marked_with_breaks(words, breaks)
+        repaired_groups = break_groups(words, repaired_marked)
+        log.info("sentence mismatch repaired locally words=%s:%s of %s", start, end, len(words))
+        return repaired_groups
 
 
 async def _enforce_lengths(
