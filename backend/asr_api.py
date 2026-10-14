@@ -19,7 +19,8 @@ ARTIFACT_PATTERNS = ("{fid}.asr*", "{fid}.srt", "{fid}.sentences.json", "{fid}.t
 def masked(row) -> dict | None:
     if row is None:
         return None
-    data = {name: row[name] for name in FIELDS}
+    data = {name: row[name] for name in FIELDS if name != "config_source"}
+    data["config_source"] = row["config_source"]
     key = data.pop("api_key")
     data["has_key"] = bool(key)
     data["api_key_masked"] = f"{key[:3]}…{key[-4:]}" if len(key) > 8 else ("…" if key else "")
@@ -65,7 +66,7 @@ def router(
             return {
                 "own": masked(settings.get(user["id"], service)),
                 "shared": masked(shared) if user["role"] == "admin" else None,
-                "has_shared": shared is not None and any(shared[name] for name in FIELDS),
+                "has_shared": shared is not None and any(shared[name] for name in FIELDS if name != "config_source"),
             }
 
         return {service: view(service) for service in SERVICES}
@@ -88,6 +89,8 @@ def router(
         else:
             raise HTTPException(400, "unknown scope")
         values = dict(body.get("values") or {})
+        if values.get("config_source", "auto") not in ("auto", "shared", "personal"):
+            raise HTTPException(400, "unknown config source")
         if values.get("api_key") is None:
             values.pop("api_key", None)
         existing = settings.get(target, service)

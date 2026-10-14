@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SERVICES = ("asr", "sentence", "translate")
-FIELDS = ("kind", "base_url", "api_key", "model", "api_flavor", "auth_style", "aligner")
+FIELDS = ("kind", "base_url", "api_key", "model", "api_flavor", "auth_style", "aligner", "config_source")
 GLOBAL = 0
 
 
@@ -48,10 +48,14 @@ class SettingsStore:
                     api_flavor TEXT NOT NULL DEFAULT '',
                     auth_style TEXT NOT NULL DEFAULT '',
                     aligner TEXT NOT NULL DEFAULT '',
+                    config_source TEXT NOT NULL DEFAULT 'auto',
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (user_id, service)
                 );
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(provider_settings)")}
+            if "config_source" not in columns:
+                db.execute("ALTER TABLE provider_settings ADD COLUMN config_source TEXT NOT NULL DEFAULT 'auto'")
 
     def put(self, user_id: int, service: str, values: dict) -> None:
         if service not in SERVICES:
@@ -78,10 +82,20 @@ class SettingsStore:
 
     def resolve(self, user_id: int, service: str) -> dict | None:
         merged: dict[str, str] = {}
-        for row in (self.get(GLOBAL, service), self.get(user_id, service)):
+        own = self.get(user_id, service)
+        shared = self.get(GLOBAL, service)
+        if own is not None and own["config_source"] == "shared":
+            rows = (shared,)
+        elif own is not None and own["config_source"] == "personal":
+            rows = (own,)
+        else:
+            rows = (shared, own)
+        for row in rows:
             if row is None:
                 continue
             for name in FIELDS:
+                if name == "config_source":
+                    continue
                 if row[name]:
                     merged[name] = row[name]
         return merged or None
