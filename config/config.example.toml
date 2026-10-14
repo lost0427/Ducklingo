@@ -1,6 +1,6 @@
 [tools]
 data_dir = "data/tools"
-ffmpeg_release_tag = "autobuild-2026-08-25-13-06"
+ffmpeg_release_tag = "latest"
 ffmpeg_variant = "gpl"
 
 [download]
