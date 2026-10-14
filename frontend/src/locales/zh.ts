@@ -118,6 +118,7 @@ export default {
   automaticConfig: '自动回退（个人配置优先）',
   personalConfig: '仅使用个人配置',
   adminSharedConfig: '使用管理员共享配置',
+  sharedSelectedHint: '当前使用管理员共享配置，此处无需填写个人服务参数。',
   saveOk: '已保存',
   modelManage: '模型管理（共享）',
   downloadModel: '下载',

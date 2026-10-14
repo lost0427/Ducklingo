@@ -118,6 +118,7 @@ export default {
   automaticConfig: 'Automatic fallback (personal config first)',
   personalConfig: 'Use personal config only',
   adminSharedConfig: 'Use admin shared config',
+  sharedSelectedHint: 'The admin shared config is active. No personal service settings are needed here.',
   saveOk: 'Saved',
   modelManage: 'Model management (shared)',
   downloadModel: 'Download',

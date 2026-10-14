@@ -300,6 +300,8 @@ onMounted(() => {
               <option value="shared" :disabled="!settings?.asr.has_shared">{{ t.adminSharedConfig }}</option>
             </select>
           </fieldset>
+          <p v-if="user?.role !== 'admin' && configSources.asr === 'shared'" class="text-sm text-base-content/60">{{ t.sharedSelectedHint }}</p>
+          <template v-if="user?.role === 'admin' || configSources.asr !== 'shared'">
           <fieldset class="fieldset">
             <label class="label p-0 text-sm font-semibold" for="asr-kind">{{ t.serviceKind }}</label>
             <select id="asr-kind" v-model="forms.asr.kind" class="select w-full bg-base-200">
@@ -359,6 +361,7 @@ onMounted(() => {
             </fieldset>
           </template>
           <button class="btn btn-primary" type="submit">{{ t.save }}</button>
+          </template>
         </form>
 
         <form class="space-y-3 rounded-box border border-base-content/30 p-4" @submit.prevent="save('sentence')">
@@ -371,6 +374,8 @@ onMounted(() => {
               <option value="shared" :disabled="!settings?.sentence.has_shared">{{ t.adminSharedConfig }}</option>
             </select>
           </fieldset>
+          <p v-if="user?.role !== 'admin' && configSources.sentence === 'shared'" class="text-sm text-base-content/60">{{ t.sharedSelectedHint }}</p>
+          <template v-if="user?.role === 'admin' || configSources.sentence !== 'shared'">
           <fieldset class="fieldset">
             <label class="label p-0 text-sm font-semibold" for="sentence-base-url">{{ t.baseUrl }}</label>
             <input id="sentence-base-url" v-model="forms.sentence.base_url" class="input w-full bg-base-200" type="url" placeholder="https://api.openai.com/v1" />
@@ -384,6 +389,7 @@ onMounted(() => {
             <input id="sentence-model" v-model="forms.sentence.model" class="input w-full bg-base-200" />
           </fieldset>
           <button class="btn btn-primary" type="submit">{{ t.save }}</button>
+          </template>
         </form>
 
         <form class="space-y-3 rounded-box border border-base-content/30 p-4" @submit.prevent="save('translate')">
@@ -396,6 +402,8 @@ onMounted(() => {
               <option value="shared" :disabled="!settings?.translate.has_shared">{{ t.adminSharedConfig }}</option>
             </select>
           </fieldset>
+          <p v-if="user?.role !== 'admin' && configSources.translate === 'shared'" class="text-sm text-base-content/60">{{ t.sharedSelectedHint }}</p>
+          <template v-if="user?.role === 'admin' || configSources.translate !== 'shared'">
           <fieldset class="fieldset">
             <label class="label p-0 text-sm font-semibold" for="translate-base-url">{{ t.baseUrl }}</label>
             <input id="translate-base-url" v-model="forms.translate.base_url" class="input w-full bg-base-200" type="url" placeholder="https://api.openai.com/v1" />
@@ -409,6 +417,7 @@ onMounted(() => {
             <input id="translate-model" v-model="forms.translate.model" class="input w-full bg-base-200" />
           </fieldset>
           <button class="btn btn-primary" type="submit">{{ t.save }}</button>
+          </template>
         </form>
       </div>
     </section>
