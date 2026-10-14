@@ -22,6 +22,7 @@ RUN python3 -m venv /opt/venv --system-site-packages \
       fastapi uvicorn argon2-cffi httpx crispasr==0.8.31+cuda numpy tiktoken
 
 COPY backend/ ./backend/
+COPY prompts/ ./prompts/
 COPY serve.py ./serve.py
 COPY config/config.example.toml ./config/config.example.toml
 COPY config/asr_models.example.toml ./config/asr_models.example.toml
